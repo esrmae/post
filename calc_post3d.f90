@@ -10,35 +10,40 @@
 ! from the read_post module.
 !*******************************************************************************
 	SUBROUTINE calc3d
-        Integer :: nsnaps,tp,n,l,m,cor_cntx,cor_cntz,lam_cnt,iwshear,icorr2d,imodu
+        Integer :: nsnaps,tp,n,l,m,cor_cntx,cor_cntz,lam_cnt,iwshear,icorr2d,imodu,il2rms,iam,isk
 	Character :: file3d*40
 	Real(mytype) :: utau_now
         Real(mytype), dimension(8) :: dum
  	integer, dimension(3) :: intdum
-	Real(mytype), Dimension(ny) :: umn_now,wmn_now,l2_mean,l2_rms
+	Real(mytype), Dimension(ny) :: umn_now,wmn_now,l2_mean,l2_rms,l2n_mean
 	Real(mytype), Dimension(:,:,:,:), Allocatable :: dummy_3d,vx
-	Real(mytype), Dimension(:,:,:), Allocatable :: l2_array, wx,wy,wz,AM
+	Real(mytype), Dimension(:,:,:), Allocatable :: l2_array, wx,AM
 	Real(mytype), Dimension(:,:), Allocatable :: dummy_1d, corrm1,corrm2,corr2d
-	Integer, Dimension(:,:,:), Allocatable :: pmin 
-	Integer :: i,j,k,j1,j2
+	Integer, Dimension(:,:,:), Allocatable :: pmin
+	Integer :: i,j,k,j1,j2,ipldec
+	Integer, Dimension(ny) :: lamn_cnt
 !
 !	Initialisations
 	Allocate(dummy_3d(-1:nx+2,-1:ny+2,-1:nz+2,4),corr(max_xz+1,2,3),spec(max_xz,2,3))
 	simit=sim3d
-	cor_cntx = 0; cor_cntz = 0;lam_cnt=0; tp=0
+	cor_cntx = 0; cor_cntz = 0; lam_cnt=0; tp=0; lamn_cnt(:)=0
 	spec=0.0e0; corr = 0.0e0
-	l2_mean=0.0e0; l2_rms=0.0e0
+	l2_mean=0.0e0; l2_rms=0.0e0; l2n_mean=0.0e0
 	iwshear=1
-	icorr2d=0; imodu=0
+	icorr2d=0; imodu=0; jmodu=ny/2
+	il2rms=0; iquad=0
+	ipldec=0 ! decompose plasma force region
+        iam=0 ! amplitude modulation Mathis et al 2009 (calc_am1p; calc_am1p_z; calc_am2p; calc_am2p_simplify; calc_am2p_simplify_z)
+	isk=1 ! skewness decomposition (Mathis et al 2011)
 	If (jvis == 0) jvis=ny
         If (ilamq == 1) ivort3d=1
 	If (imodu == 1) icorr2d=1
 !
 	If (ilamq == 1) Allocate(l2_array(nxt,nyt,nzt),pmin(nxt,nyt,nzt),vx(nxt,nyt,nzt,3))
-	If(ivort3d == 1) Allocate(wx(nx,ny,nz),wy(nx,ny,nz),wz(nx,ny,nz))
+	If(ivort3d == 1) Allocate(wx(nx,ny,nz))
 	If(icorr2d==1) Allocate(corrm1(-1:nx+2,-1:nz+2),corrm2(-1:nx+2,-1:nz+2), &
 		corr2d(-1:nx+2,-1:nz+2))
-	If(imodu==1) Then; jmodu=ny/2; Allocate(AM(1:jmodu,1:jmodu,1:3)); End If
+	If(imodu==1) Then; Allocate(AM(1:jmodu,1:jmodu,1:3)); End If
 	Call open_files3d
 !
 !	DO n = nstart(simit), nruns(simit)
@@ -57,20 +62,20 @@
 !
 	  DO m=1, nsnaps
 	    tp=tp+1
-!	    Read(13) intdum(1),intdum(2),intdum(3),dum(1),dum(2),dum(3),dum(4),dum(5),dum(6),dum(7),dum(8)
-	    Read(13) intdum(:),dum(:)
-	    write(*,*) intdum, dum
-	    print *,'reading u from', restrt_file
-	    Read(13) dummy_3d(:,:,:,1) !u
-            print *,'reading v from', restrt_file
-	    Read(13) dummy_3d(:,:,:,2) !v
-            print *,'reading w from', restrt_file
-	    Read(13) dummy_3d(:,:,:,3) !w
-            print *,'reading p from', restrt_file
-	    Read(13) dummy_3d(:,:,:,4) !p	
-!
+!!	    Read(13) intdum(1),intdum(2),intdum(3),dum(1),dum(2),dum(3),dum(4),dum(5),dum(6),dum(7),dum(8)
+!	    Read(13) intdum(:),dum(:)
+!	    write(*,*) intdum, dum
+!	    print *,'reading u from', restrt_file
+!	    Read(13) dummy_3d(:,:,:,1) !u
+!           print *,'reading v from', restrt_file
+!	    Read(13) dummy_3d(:,:,:,2) !v
+!           print *,'reading w from', restrt_file
+!	    Read(13) dummy_3d(:,:,:,3) !w
+!           print *,'reading p from', restrt_file
+!	    Read(13) dummy_3d(:,:,:,4) !p	
+!!
 	    If(iplot3d.Eq.1) then
-!	    tecplot file format
+!	      tecplot file format
 	      If(itec == 1) Then
 	        Write(303,'(10f20.10)') (((xc(i),i=1,nx),j=1,jvis),k=1,nz)
 	        Write(303,'(10f20.10)') (((yc(j),i=1,nx),j=1,jvis),k=1,nz)
@@ -80,7 +85,7 @@
 	        Write(303,'(10f20.10)') (((0.5*(dummy_3d(i,j,k,3)+dummy_3d(i,j,k+1,3)),i=1,nx),j=1,jvis),k=1,nz)
 	        Write(303,'(10f20.10)') (((dummy_3d(i,j,k,4),i=1,nx),j=1,jvis),k=1,nz)
 	      Else
-!	    paraview format
+!	        paraview format
 	        Write(303,'(A,3I10)') 'DIMENSIONS',nx,jvis,nz
 		Write(303,'(A,I10,A)') 'X_COORDINATES', nx, ' float'
 		Do i=1,nx; Write(303,'(E15.7)') xc(i); End Do
@@ -89,11 +94,21 @@
 		Write(303,'(A,I10,A)') 'Z_COORDINATES', nz, ' float'
 		Do k=1,nz; Write(303,'(E15.7)') zc(k); End Do
 		Write(303,'(A,I10)') 'POINT_DATA',nx*jvis*nz
-		Write(303,'(A)') 'SCALARS u float 1'
-		Write(303,'(A)') 'LOOKUP_TABLE default'
-		DO k=1,nz; DO j=1,jvis; DO i=1,nx
-  		  Write(303,'(10F20.10)') 0.5*(dummy_3d(i,j,k,1)+dummy_3d(i+1,j,k,1))
-		End Do; End Do; End Do
+!		Write(303,'(A)') 'SCALARS u float 1'
+!		Write(303,'(A)') 'LOOKUP_TABLE default'
+!		DO k=1,nz; DO j=1,jvis; DO i=1,nx
+!  		  Write(303,'(10F20.10)') 0.5*(dummy_3d(i,j,k,1)+dummy_3d(i+1,j,k,1))
+!		End Do; End Do; End Do
+                Write(303,'(A)') 'SCALARS p float 1'
+                Write(303,'(A)') 'LOOKUP_TABLE default'
+                DO k=1,nz; DO j=1,jvis; DO i=1,nx
+                  Write(303,'(10F20.10)') dummy_3d(i,j,k,4)
+                End Do; End Do; End Do
+                Write(303,'(A)') 'VECTORS U float'
+                DO k=1,nz; DO j=1,jvis; DO i=1,nx
+                  Write(303,'(10F20.10)') 0.5*(dummy_3d(i,j,k,1)+dummy_3d(i+1,j,k,1)),0.5*(dummy_3d(i,j,k,2)+dummy_3d(i,j+1,k,2)), &
+                                          0.5*(dummy_3d(i,j,k,3)+dummy_3d(i,j,k+1,3))
+                End Do; End Do; End Do
 	      End If
 	      Close(303)
 	    Endif
@@ -101,6 +116,12 @@
 	    If ((tp == tvis).or.(tvis == 0)) then
 
 	      Call dat_calc(dummy_3d,utau_now,umn_now,wmn_now)
+!
+! 	      remove the mean
+!             DO k=0,nzt; DO j=1,ny; DO i=0,nxt
+!               dummy_3d(i,j,k,1)=dummy_3d(i,j,k,1)-umn_now(j) !Sum(dummy_3d(1:nx,j,1:nz,1))/Real(nx*nz,mytype)
+!               dummy_3d(i,j,k,3)=dummy_3d(i,j,k,3)-wmn_now(j) !Sum(dummy_3d(1:nx,j,1:nz,3))/Real(nx*nz,mytype)
+!             End Do; End Do; End Do
 !	      write wall shear stress
 	      If(iwshear==1) Call wallshearplot(dummy_3d)
 	      !iplot2d=1 create the 2d slice base on restart file
@@ -110,59 +131,60 @@
 	      If (ivort3d==1) Call vort_vis(dummy_3d,wx)
 	      If (ilamq==1) then
 		Call lambdaQ(dummy_3d,l2_array,pmin,vx,wx)
-		Call lambdaQ_mean(l2_array,l2_mean,l2_rms,lam_cnt)
+		Call lambdaQ_mean(l2_array,l2_mean,l2n_mean,l2_rms,lam_cnt,lamn_cnt)
 	      End If
-	      if(ivort3d==1.and.0) then
-!write middle data file for wx, wy, wz and lamda2, so that can calculate the correlation between -lamda2 and others
-		open(unit=306,file='vorticity-lambda2.plt')
-	        WRITE(306,'(120A)') ' variables="x","y","z","wx","wy","wz","p","lam2"'
- 	        WRITE(306,*) 'zone DATAPACKING=BLOCK, i=',nx,', j=',jvis,', k=',nz
-	        Write(306,'(10f20.10)') (((xc(i),i=1,nx),j=1,jvis),k=1,nz)
-	        Write(306,'(10f20.10)') (((yc(j),i=1,nx),j=1,jvis),k=1,nz)
-	        Write(306,'(10f20.10)') (((zc(k),i=1,nx),j=1,jvis),k=1,nz)
-	        Write(306,'(10f20.10)') (((wx(i,j,k)*nu/utau_avg_sa**2,i=1,nx),j=1,jvis),k=1,nz)
-	        Write(306,'(10f20.10)') (((wy(i,j,k)*nu/utau_avg_sa**2,i=1,nx),j=1,jvis),k=1,nz)
-	        Write(306,'(10f20.10)') (((wz(i,j,k)*nu/utau_avg_sa**2,i=1,nx),j=1,jvis),k=1,nz)
-	        Write(306,'(10f20.10)') (((dummy_3d(i,j,k,4)/utau_avg_sa**2/rho,i=1,nx),j=1,jvis),k=1,nz)
-	        Write(306,'(10f20.10)') (((-1.0*l2_array(i,j,k)*nu**2/utau_avg_sa**4,i=1,nx),j=1,jvis),k=1,nz)		
-		close(306)
-	      endif
-!calculate the correlation of uu,vv,ww and their energy spectra
+!!	      calculate the correlation of uu,vv,ww and their energy spectra
 !	      If (icorr==1) Call correlation(dummy_3d,cor_cntx,cor_cntz,umn_now,wmn_now)
-!	      Call pdf(dummy_3d,umn_now)
-!calculate the correlation of -lamd2*wx,-lamd2*wy,-lamd2*wz,-lamd2*p
-!	      If (icorr==1) Call onepoint_correlation_lambda2
-!2d correlation for the modulation effect from super scale structures.
-	      If(imodu==1) Then
-	        AM(:,:,:)=0.0e0
-	        Do j1=1,jmodu; Do j2=1,j1
-		  Write(*,'(A,A,F10.5,A,F10.5)') 'modulation at: ', 'y1=',yc(j1), ', y2=', yc(j2)
-	          corrm1(-1:nx+2,-1:nz+2)=dummy_3d(-1:nx+2,j1,-1:nz+2,1)
-	          corrm2(-1:nx+2,-1:nz+2)=dummy_3d(-1:nx+2,j2,-1:nz+2,1)
-		  Call correlation_2D(corrm1,corrm2,corr2d)
-		  AM(j2,j1,1)=Maxval(corr2d(1:nx,1:nz))
-		  AM(j2,j1,2:3)=Maxloc(corr2d(1:nx,1:nz))
-		  Write(*,*) 'Maximum location', AM(j2,j1,2), AM(j2,j1,3)
-	        End Do; End Do
-		Call write_modulation(AM)
-		Deallocate(AM)
-	      End If
-	      Call correlation_spec(dummy_3d)
-! conditional average by positive and negative super scale structures
+!	      Call pdf
+!!	      2d correlation for the modulation effect from super scale structures.
+!	      If(imodu==1) Then
+!	        AM(:,:,:)=0.0e0
+!	        Do j1=1,jmodu
+!		Write(*,'(A,A,F10.5,A,F10.5)') 'modulation at: ', 'y1=',yc(j1)
+!		Do j2=1,jmodu
+!	          corrm1(-1:nx+2,-1:nz+2)=dummy_3d(-1:nx+2,j1,-1:nz+2,1)
+!	          corrm2(-1:nx+2,-1:nz+2)=dummy_3d(-1:nx+2,j2,-1:nz+2,1)
+!		  Call correlation_2D(corrm1,corrm2,corr2d)
+!		  AM(j2,j1,1)=Maxval(corr2d(1:nx,1:nz))
+!		  AM(j2,j1,2:3)=Maxloc(corr2d(1:nx,1:nz))
+!		  Write(*,*) 'Maximum location', AM(j2,j1,2), AM(j2,j1,3), AM(j2,j1,1)
+!	        End Do; End Do
+!		Call write_modulation(AM)
+!		Deallocate(AM)
+!	      End If
+!!	      2d correlation for the modulation effect from at different range of scales.
+	      If(imodu==1) Call correlation_spec()
+!!	      conditional average by positive and negative super scale structures
 !	      Call super_condition()
 !	      Call struct_log
-!	      If (icorr2d==1) Call correlation_2D(corrm1,corrm2,corr2d)
-!spectra calculation
-!              Call spectra2D(dummy_3d,umn_now,wmn_now)
-!              Call spectra_uv(dummy_3d,umn_now,wmn_now)
+	      If (icorr2d==1) Then
+	        corrm1(-1:nx+2,-1:nz+2)=dummy_3d(-1:nx+2,26,-1:nz+2,1)
+	        corrm2(-1:nx+2,-1:nz+2)=dummy_3d(-1:nx+2,26,-1:nz+2,2)
+	 	Call correlation_2D(corrm1,corrm2,corr2d)
+	      End If
+!!	      get uv cross correlation for multiple restart files
+!	      Call correlation_2D_uv
+!!	      spectra calculation
+!             Call spectra2D(dummy_3d,umn_now,wmn_now)
+!             Call spectra_uv(dummy_3d,umn_now,wmn_now)
 !---------------------------------------------------------------------
 	    End If
 	  END DO
-	  Call write_mean(l2_array,l2_mean,l2_rms,utau_now,lam_cnt,cor_cntx,cor_cntz)
+	  Call write_mean(l2_array,l2_mean,l2n_mean,l2_rms,utau_now,lam_cnt,lamn_cnt,cor_cntx,cor_cntz)
+	  If(il2rms==1) Call write_l2rms
 	  Close(13)
 !    	END DO
 	If(icorr2d==1) Deallocate(corrm1,corrm2,corr2d)
+!	decompose the plasma force region
+	If(ipldec==1) Call plasma_decompose
+!	calculate the quadrant events
+	If(iquad==1) Call calc_quad
+!	calculate the one (two) point amplitude modulation (AM) Mathis_etal_JFM2009 (Schlatter & Orlu 2010)
+	If(iam==1) Call calc_am2p_simplify
+!	calculate the decomposed skewness
+	If(isk==1) Call skew_decompose
 !
+	Deallocate(dummy_3d)
 	END SUBROUTINE calc3d
 
 !*******************************************************************************
@@ -379,46 +401,103 @@
 	SUBROUTINE vort_vis(dummy_3d,wx)
 !	This subroutine calculates the correlations
 	Real(mytype), Dimension(-1:nx+2,-1:ny+2,-1:nz+2,4), Intent(in) :: dummy_3d
-	Real(mytype), Dimension(nx,ny,nz), Intent(out) :: wx !, wy, wz
+	Real(mytype), Dimension(nx,ny,nz), Intent(out) :: wx
 	Real(mytype), Dimension(ny,2) :: wxj,wyj,wzj,prej
-	Real(mytype) :: temp
+	Real(mytype) :: temp,temp2,theta,ucm,uc,ucp,vcm,vc,vcp,wcm,wc,wcp
 !
-	Integer :: i,j,k
-	Real(mytype), Dimension(:,:,:), Allocatable :: dwdy, dvdz, dudz, dwdx, dvdx, dudy
+	Integer :: i,j,k,iwy,iwz,irotate,iwri
+	Real(mytype), Dimension(:,:,:), Allocatable :: dwdy, dvdz, wy, wz
 !
-	Allocate(dwdy(nx,ny,nz),dvdz(nx,ny,nz)) !,dudz(nx,ny,nz),dwdx(nx,ny,nz),dvdx(nx,ny,nz),dudy(nx,ny,nz))
+	Allocate(dwdy(nx,ny,nz),dvdz(nx,ny,nz))
+	Allocate(wy(nx,ny,nz),wz(nx,ny,nz))
+	iwy=1; iwz=1
+	iwri=0 ! write files out or not
+	! if the vorticity principle vector is not aligned in x direction
+	irotate=0; theta=0.0e0/180.0e0*pi ! theta should be negative
+	If(irotate==1) iwz=1
 !
 	DO k=1,nz; DO j=1,ny; DO i=1,nx
 !vortices in x direction
-	  dwdy(i,j,k)=gcdy_c(j,2,2,1)*dummy_3d(i,j+1,k,3) + &
-		      gcdy_c(j,3,2,1)*dummy_3d(i,j,k,3) + &
-		      gcdy_c(j,4,2,1)*dummy_3d(i,j-1,k,3) 
-	  dvdz(i,j,k)=gcdz_c(k,2,3,1)*dummy_3d(i,j,k+1,2) + &
-		      gcdz_c(k,3,3,1)*dummy_3d(i,j,k,2) + &
-		      gcdz_c(k,4,3,1)*dummy_3d(i,j,k-1,2) 
+	  wcp=0.5e0*(dummy_3d(i,j+1,k,3)+dummy_3d(i,j+1,k+1,3))
+	  wc =0.5e0*(dummy_3d(i,j,k,3)+dummy_3d(i,j,k+1,3))
+	  wcm=0.5e0*(dummy_3d(i,j-1,k,3)+dummy_3d(i,j-1,k+1,3))
+	  dwdy(i,j,k)=gcdy_c(j,2,2,1)*wcp + &
+		      gcdy_c(j,3,2,1)*wc + &
+		      gcdy_c(j,4,2,1)*wcm
+	  vcp=0.5e0*(dummy_3d(i,j,k+1,2)+dummy_3d(i,j+1,k+1,2)) 
+	  vc =0.5e0*(dummy_3d(i,j,k,2)+dummy_3d(i,j+1,k,2)) 
+	  vcm=0.5e0*(dummy_3d(i,j,k-1,2)+dummy_3d(i,j+1,k-1,2)) 
+	  dvdz(i,j,k)=gcdz_c(k,2,1,1)*vcp + &
+		      gcdz_c(k,3,1,1)*vc + &
+		      gcdz_c(k,4,1,1)*vcm 
 	  wx(i,j,k)=dwdy(i,j,k)-dvdz(i,j,k)	
+	End Do; End Do; End Do
+	! write binary file for wx
+	If(iwri==1) Then
+	Open(19,File='wx-bin-snap.dat', Status='Unknown',Form='unformatted',Access='stream')
+	Write(19) wx(:,:,:)
+	Close(19); End If
+	If(iwy==1) Then
+	DO k=1,nz; DO j=1,ny; DO i=1,nx
 !!vortices in y direction
-!	  dudz(i,j,k)=gcdz_c(k,2,2,1)*dummy_3d(i,j,k+1,1) + &
-!		      gcdz_c(k,3,2,1)*dummy_3d(i,j,k,1) + &
-!		      gcdz_c(k,4,2,1)*dummy_3d(i,j,k-1,1) 
-!	  dwdx(i,j,k)=gcdx_c(i,2,2,1)*dummy_3d(i+1,j,k,3) + &
-!		      gcdx_c(i,3,2,1)*dummy_3d(i,j,k,3) + &
-!		      gcdx_c(i,4,2,1)*dummy_3d(i-1,j,k,3) 
-!	  wy(i,j,k)=dudz(i,j,k)-dwdx(i,j,k)
+	  ! dudz
+	  ucp=0.5e0*(dummy_3d(i,j,k+1,1)+dummy_3d(i+1,j,k+1,1))
+	  uc =0.5e0*(dummy_3d(i,j,k,1)+dummy_3d(i+1,j,k,1))
+	  ucm=0.5e0*(dummy_3d(i,j,k-1,1)+dummy_3d(i+1,j,k-1,1))
+	  dwdy(i,j,k)=gcdz_c(k,2,1,1)*ucp + &
+		      gcdz_c(k,3,1,1)*uc + &
+		      gcdz_c(k,4,1,1)*ucm 
+	  ! dwdx
+	  wcp=0.5e0*(dummy_3d(i+1,j,k,3)+dummy_3d(i+1,j,k+1,3))
+	  wc =0.5e0*(dummy_3d(i,j,k,3)+dummy_3d(i,j,k+1,3))
+	  wcm=0.5e0*(dummy_3d(i-1,j,k,3)+dummy_3d(i-1,j,k+1,3))
+	  dvdz(i,j,k)=gcdx_c(i,2,1,1)*wcp + &
+		      gcdx_c(i,3,1,1)*wc + &
+		      gcdx_c(i,4,1,1)*wcm 
+	  wy(i,j,k)=dwdy(i,j,k)-dvdz(i,j,k)
+	End Do; End Do; End Do
+	! write binary file for wy
+	If(iwri==1) Then
+	Open(19,File='wy-bin-snap.dat', Status='Unknown',Form='unformatted',Access='stream')
+	Write(19) wy(:,:,:)
+	Close(19); End If
+	End If
+	If(iwz==1) Then
+	DO k=1,nz; DO j=1,ny; DO i=1,nx
 !!vortices in z direction
-!	  dvdx(i,j,k)=gcdx_c(i,2,2,1)*dummy_3d(i+1,j,k,2) + &
-!		      gcdx_c(i,3,2,1)*dummy_3d(i,j,k,2) + &
-!		      gcdx_c(i,4,2,1)*dummy_3d(i-1,j,k,2) 
-!	  dudy(i,j,k)=gcdy_c(j,2,2,1)*dummy_3d(i,j+1,k,1) + &
-!		      gcdy_c(j,3,2,1)*dummy_3d(i,j,k,1) + &
-!		      gcdy_c(j,4,2,1)*dummy_3d(i,j-1,k,1) 
-!	  wz(i,j,k)=dvdx(i,j,k)-dudy(i,j,k)
-!	END DO; END DO; END DO
-!! 	WRITE(18,*) ' zone i=',nx,', j=',jvis,', k=',nz,',f=point'
-!!	DO k=1,nz;DO j=1,jvis;DO i=1,nx
-!!	  Write(18,'(4E15.7)')xc(i),yc(j),zc(k),wx(i,j,k)
-	END DO; END DO; END DO
+	  ! dvdx
+	  vcp=0.5e0*(dummy_3d(i+1,j,k,2)+dummy_3d(i+1,j+1,k,2))
+	  vc =0.5e0*(dummy_3d(i,j,k,2)+dummy_3d(i,j+1,k,2))
+	  vcm=0.5e0*(dummy_3d(i-1,j,k,2)+dummy_3d(i-1,j+1,k,2))
+	  dwdy(i,j,k)=gcdx_c(i,2,1,1)*vcp + &
+		      gcdx_c(i,3,1,1)*vc + &
+		      gcdx_c(i,4,1,1)*vcm 
+	  ! dudy
+	  ucp=0.5e0*(dummy_3d(i,j+1,k,1)+dummy_3d(i+1,j+1,k,1))
+	  uc =0.5e0*(dummy_3d(i,j,k,1)+dummy_3d(i+1,j,k,1))
+	  ucm=0.5e0*(dummy_3d(i,j-1,k,1)+dummy_3d(i+1,j-1,k,1))
+	  dvdz(i,j,k)=gcdy_c(j,2,2,1)*ucp + &
+		      gcdy_c(j,3,2,1)*uc + &
+		      gcdy_c(j,4,2,1)*ucm 
+	  wz(i,j,k)=dwdy(i,j,k)-dvdz(i,j,k)
+	End Do; End Do; End Do
+	! write binary file for wz
+	If(iwri==1) Then
+	Open(19,File='wz-bin-snap.dat', Status='Unknown',Form='unformatted',Access='stream')
+	Write(19) wz(:,:,:)
+	Close(19); End If
+	End If
 !
+	! rotate the vorticity vector field to align in the principle direction
+	If(irotate==1) Then
+	  Do k=1,nz; DO j=1,ny; DO i=1,nx
+	    temp=wx(i,j,k)*cos(theta)-wz(i,j,k)*sin(theta)
+	    temp2=wx(i,j,k)*sin(theta)+wz(i,j,k)*cos(theta)
+	    wx(i,j,k)=temp; wz(i,j,k)=temp2
+	  End Do; End Do; End Do
+	End If
+!
+	If(iwri==1) Then
 	If(itec==1) Then
  	  WRITE(18,*) 'zone DATAPACKING=BLOCK, i=',nx,', j=',jvis,', k=',nz
 	  Write(18,'(10f20.10)') (((xc(i),i=1,nx),j=1,jvis),k=1,nz)
@@ -452,11 +531,7 @@
 	  Write(18,'(A)') 'SCALARS omegax float 1'
 	  Write(18,'(A)') 'LOOKUP_TABLE default'
   	  Write(18,'(10F20.10)') (((wx(i,j,k),i=1,nx),j=1,jvis),k=1,nz)
-	End If
-	Close(18)
-! write binary file for wx
-	Open(18,File='wx-bin-snap.dat', Status='Unknown',Form='unformatted',Access='stream')
-	Write(18) wx(:,:,:)
+	End If; End If
 	Close(18)
 !calculate vorticity and pressue fluctuation: root-mean-square
 	wxj=0.0; wyj=0.0; wzj=0.0;prej=0.0
@@ -485,7 +560,7 @@
 
 	Close(303)
 
-	Deallocate(dwdy,dvdz)!,dudz,dwdx,dvdx,dudy)
+	Deallocate(dwdy,dvdz,wy,wz)
 !
 	END SUBROUTINE vort_vis
 !*******************************************************************************
@@ -497,7 +572,7 @@
 	Real(mytype), Dimension(nxt,nyt,nzt,3), Intent(out) :: vx
 	Real(mytype), Dimension(nx,ny,nz), Intent(in) :: wx
 !
-	Integer :: i,j,k,n,m,istep,jstep,kstep,kin,jin
+	Integer :: i,j,k,n,m,istep,jstep,kstep,kin,jin,iwri
 	Real(mytype) :: denoy,cy1,cy2,cy3,denox,cx1,cx2,cx3,denoz,cz1,cz3,cz2, &
 		SM,OM,R,Q3,PM,TEMP,A1,A2,A3,l1,l2,l3,lambda,scl
 	Real(mytype), Dimension(3,3) :: S, O, SO, vmat
@@ -512,6 +587,7 @@
 !	
 	istep=1;jstep=1;kstep=1
         pmin=0
+	iwri=0 ! write 3d flow field or not
 !
          DO j=1,nyt
           denoy=(dy(j)+dy(j-1))*(dy(j+1)+dy(j))*                               &
@@ -647,6 +723,7 @@
 
 	ENDDO; ENDDO; ENDDO
 !
+	If(iwri==1) Then
 	If(itec==1) Then
  	  WRITE(23,*) 'zone DATAPACKING=BLOCK, i=',nx,', j=',jvis,', k=',nz
 	  Write(23,'(10E15.7)') (((xc(i),i=1,nx),j=1,jvis),k=1,nz)
@@ -677,7 +754,7 @@
 	  Write(23,'(A)') 'SCALARS lambda2 float 1'
 	  Write(23,'(A)') 'LOOKUP_TABLE default'
   	  Write(23,'(10F20.10)') (((l2_array(i,j,k)*nu**2/utau_avg_sa**4,i=1,nx),j=1,jvis),k=1,nz)
-	End If
+	End If; End If
 !
 	END SUBROUTINE lambdaQ
 !***************************************************************************
@@ -833,39 +910,49 @@
 
         end function rmod
 !*******************************************************************************
-	SUBROUTINE lambdaQ_mean(l2_array,l2_mean,l2_rms,lam_count)
+	SUBROUTINE lambdaQ_mean(l2_array,l2_mean,l2n_mean,l2_rms,lam_count,lamn_count)
 !
 	Real(mytype), Dimension(nxt,nyt,nzt), Intent(in) ::l2_array
-	Real(mytype), Dimension(ny), Intent(inout) :: l2_mean,l2_rms
+	Real(mytype), Dimension(ny), Intent(inout) :: l2_mean,l2_rms,l2n_mean
 	Integer, Intent(inout) :: lam_count
+	Integer, Dimension(ny), Intent(inout) :: lamn_count
 !
 	Integer :: i,j,k
 !
-	DO k=1,nz; DO j=1,jvis;DO i=1,nx
+	DO j=1,ny; DO k=1,nz; DO i=1,nx
 	  l2_mean(j) = l2_mean(j) + l2_array(i,j,k)
 	  l2_rms(j) = l2_rms(j) + (l2_array(i,j,k))**2.0
+	  If(l2_array(i,j,k)<0.0e0) Then
+	    l2n_mean(j) = l2n_mean(j) + l2_array(i,j,k)
+	    lamn_count(j) = lamn_count(j) + 1
+	  End If
 	END DO; END DO; END DO
 	lam_count = lam_count + nx*nz 
 !
 	END SUBROUTINE lambdaQ_mean
 
 !***************************************************************************
-	SUBROUTINE write_mean(l2_array,l2_mean,l2_rms,utau_now,lam_count,countx,countz)
+	SUBROUTINE write_mean(l2_array,l2_mean,l2n_mean,l2_rms,utau_now,lam_count,lamn_count,countx,countz)
 !
 	Real(mytype), Dimension(nxt,nyt,nzt), Intent(in) ::l2_array
-	Real(mytype), Dimension(ny), Intent(inout) :: l2_mean,l2_rms
+	Real(mytype), Dimension(ny), Intent(inout) :: l2_mean,l2_rms,l2n_mean
 	Real(mytype), Intent(in) :: utau_now
 	Integer, Intent(in) :: lam_count,countx,countz
+	Integer, Dimension(ny), Intent(in) :: lamn_count
 !
 	Integer :: i,j,k,m
-!
 	If (ilamq==1) then
 	  l2_mean=l2_mean/REAL(lam_count)
+	  Do j=1,ny
+	    l2n_mean(j)=l2n_mean(j)/REAL(lamn_count(j))
+	  End Do
 !	  l2_rms=abs(sqrt(l2_rms/REAL(lam_count)))-l2_mean**2
 !Edit by Oliver
 	  l2_rms=sqrt(l2_rms/REAL(lam_count)-l2_mean**2)
-	  Do j=1,jvis
-	    Write(28,'(3E15.7)') ycplus(j),-1.0*l2_mean(j)*nu**2/utau_avg_sa**4,l2_rms(j)*nu**2/utau_avg_sa**4
+	  Do j=1,ny
+	    Write(28,'(6E15.7)') ycplus(j),-1.0*l2_mean(j)*nu**2/utau_avg_sa**4,l2_rms(j)*nu**2/utau_avg_sa**4, & 
+		-1.0*l2n_mean(j)*nu**2/utau_avg_sa**4,-1.0*(l2_mean(j)*Real(lam_count)-l2n_mean(j)*Real(lamn_count(j))) &
+		/Real(lam_count-lamn_count(j))*nu**2/utau_avg_sa**4, Real(lamn_count(j))/Real(lam_count)
 	  End Do
 	End If
 !
@@ -896,6 +983,88 @@
 	End If	
 !
 	END SUBROUTINE write_mean
+!***************************************************************************
+	SUBROUTINE write_l2rms
+!calculate the correlation of -lamd2*wx,-lamd2*wy,-lamd2*wz
+!
+	Real(mytype), Dimension(:,:,:), Allocatable ::l2_array,wx
+	Real(mytype), Dimension(:), Allocatable :: l2_mean,l2_rms,wx_mean,wx_rms,l2wx_corr,l2wxp_corr,l2wxn_corr
+!
+	Integer :: i,j,k,l2count,idir
+	Character :: filevort*40
+!
+	Allocate(l2_array(1:nxt,1:nyt,1:nzt),wx(1:nx,1:ny,1:nz), &
+	  l2_mean(1:ny),l2_rms(1:ny),wx_mean(1:ny),wx_rms(1:ny),l2wx_corr(1:ny), &
+	  l2wxp_corr(1:ny),l2wxn_corr(1:ny))
+	l2_array(:,:,:)=0.0e0; l2_mean(:)=0.0e0; l2_rms(:)=0.0e0
+	wx_mean(:)=0.0e0; wx_rms(:)=0.0e0
+	l2wx_corr(:)=0.0e0; l2wxp_corr(:)=0.0e0; l2wxn_corr(:)=0.0e0
+!
+	idir=1 ! 1 for l2-wx; 2 for l2-wy; 3 for l2-wz
+	Open(405,File='../lambda2-tmp-bin-snap1.dat',Form='unformatted',Access='stream')
+	Write(*,*) 'reading ../lambda2-tmp-bin-snap1.dat ...'
+	Read(405) l2_array(:,:,:)
+	Read(405) wx(:,:,:)
+	Close(405)
+	If(idir.Ne.1) Then
+	  If(idir==2) filevort='../wy-bin-snap.dat'
+	  If(idir==3) filevort='../wz-bin-snap.dat'
+	  Open(405,File=filevort,Form='unformatted',Access='stream')
+	  Write(*,*) 'reading ',Trim(filevort), ' ...'
+	  Read(405) wx(:,:,:)
+	  Close(405)
+	End If
+!
+	Do j=1,ny
+	  l2count=0
+	  Do k=1,nz; Do i=1,nx
+	    l2_mean(j)=l2_mean(j)+l2_array(i,j,k)
+	    wx_mean(j)=wx_mean(j)+wx(i,j,k)
+	  End Do; End Do
+	  l2_mean(j)=l2_mean(j)/Real(nx*nz,mytype)
+	  wx_mean(j)=wx_mean(j)/Real(nx*nz,mytype)
+	  Do k=1,nz; Do i=1,nx
+	    l2_rms(j)=l2_rms(j)+(l2_array(i,j,k)-l2_mean(j))**2
+	    wx_rms(j)=wx_rms(j)+(wx(i,j,k)-wx_mean(j))**2
+	  End Do; End Do
+	  l2_rms(j)=l2_rms(j)/Real(nx*nz,mytype)
+	  l2_rms(j)=Sqrt(l2_rms(j))
+	  wx_rms(j)=wx_rms(j)/Real(nx*nz,mytype)
+	  wx_rms(j)=Sqrt(wx_rms(j))
+	End Do	
+!
+	Do j=1,ny
+	  l2count=0
+	  Do k=1,nz; Do i=1,nx
+	    l2wx_corr(j)=l2wx_corr(j)-(l2_array(i,j,k)-l2_mean(j))*Abs(wx(i,j,k)-wx_mean(j))
+	    If((wx(i,j,k)-wx_mean(j))>0.0e0) Then
+	    l2wxp_corr(j)=l2wxp_corr(j)-l2_array(i,j,k)*(wx(i,j,k)-wx_mean(j))
+	    l2count=l2count+1
+	    Else
+	    l2wxn_corr(j)=l2wxn_corr(j)-l2_array(i,j,k)*(wx(i,j,k)-wx_mean(j))
+	    End If
+	  End Do; End Do
+	  l2wx_corr(j)=l2wx_corr(j)/Real(nx*nz,mytype)
+	  l2wxp_corr(j)=l2wxp_corr(j)/Real(l2count,mytype)
+	  l2wxn_corr(j)=l2wxn_corr(j)/Real(nx*nz-l2count,mytype)
+	End Do
+!
+	If(ilamq.Ne.1) Then
+	  Open(28, File='lambda2-rms.plt', status='UNKNOWN')
+	  WRITE(28,*) ' title="lambda2-rms.plt"'
+	  WRITE(28,'(120A)') ' variables="y<sup>+</sup>","-<greek>l</greek><sub>2</sub>-mean","<greek>l</greek><sub>2</sub>-rms","<greek>w</greek><sub>x</sub>-mean","<greek>w</greek><sub>x</sub>-rms","R<sub>lw</sub>","R<sub>lw,p</sub>","R<sub>lw,n</sub>"'
+	End If
+	Do j=1,ny
+	  Write(28,'(3E15.7)') ycplus(j),-1.0*l2_mean(j)*nu**2/utau_avg_sa**4,l2_rms(j)*nu**2/utau_avg_sa**4,wx_mean(j)*nu/utau_avg_sa**2,&
+	    wx_rms(j)*nu/utau_avg_sa**2,l2wx_corr(j)/l2_rms(j)/wx_rms(j),l2wxp_corr(j)/l2_rms(j)/wx_rms(j),l2wxn_corr(j)/l2_rms(j)/wx_rms(j)
+	End Do
+	If(ilamq.Ne.1) Close(28)
+
+!
+	Deallocate(l2_array,wx,l2_mean,l2_rms,wx_mean,wx_rms,l2wx_corr,&
+	  l2wxp_corr,l2wxn_corr)
+!
+	END SUBROUTINE write_l2rms
 !***************************************************************************
 	SUBROUTINE onepoint_correlation_lambda2
 !	This subroutine calculates the correlations
@@ -1063,7 +1232,7 @@
 	END SUBROUTINE correlation_2D_old
 !***************************************************************************
 	SUBROUTINE correlation_2D(corrm1,corrm2,corr2d)
-!	This subroutine calculates the correlations
+!	This subroutine calculates the correlations: corrm1 and corrm2 have mean components
 	Real(mytype), Dimension(-1:nx+2,-1:nz+2), Intent(In) :: corrm1,corrm2
 	Real(mytype), Dimension(-1:nx+2,-1:nz+2), Intent(Out) :: corr2d
 !	
@@ -1078,7 +1247,7 @@
 	mean1=0.0e0; mean2=0.0e0
 	Do k=1,nz; Do i=1,nx
 	  mean1=mean1+corrm1(i,k)
-	  mean2=mean2+corrm1(i,k)
+	  mean2=mean2+corrm2(i,k)
 	End Do; End Do
 	mean1=mean1/Real(nx*nz,mytype)
 	mean2=mean2/Real(nx*nz,mytype)
@@ -1089,9 +1258,10 @@
 	End Do; End Do
 	rms1=Sqrt(rms1/Real(nx*nz,mytype))
 	rms2=Sqrt(rms2/Real(nx*nz,mytype))
+
 !
-	DO kshift=-10,10  !-nz/2+1,nz/2
-	  DO ishift=-20,20  !-nx/2+1,nx/2
+	DO kshift=0,0 !-50,50  !-nz/2+1,nz/2
+	  DO ishift=0,0 !-100,100  !-nx/2+1,nx/2
 	    dxdx=0.0
 	    do k=1,nz; do i=1,nx
 	      temp=mod(i+ishift,nx)
@@ -1119,7 +1289,7 @@
 	    do k=1,nz; do i=1,nx
 	      dxdx=dxdx+(corrm1(i,k)-mean1)*corrm2s(i,k)
 	    enddo; enddo
-	    corr2d(ishift+nx/2,kshift+nz/2) = dxdx/real(nx*nz,kind=mytype)/rms1/rms2
+	    corr2d(ishift+nx/2,kshift+nz/2) = dxdx/real(nx*nz,kind=mytype) !/rms1/rms2
 	  END DO
 	END DO
 !
@@ -1135,6 +1305,122 @@
 	Deallocate(corrm2s)
 !
 	END SUBROUTINE correlation_2D
+!***************************************************************************
+	SUBROUTINE correlation_2D_uv
+!	This subroutine calculates the correlations for uv at different y locations using multiple restart files
+	Real(mytype), Dimension(:,:,:), Allocatable :: uvw,uvw2
+	Real(mytype), Dimension(:,:), Allocatable :: corrm1,corrm2,corr2d,corrm2s
+	Real(mytype), Dimension(:), Allocatable :: mean1,mean2
+	Integer, Dimension(:), Allocatable :: xzshift(:,:)
+!	
+        Real(mytype), dimension(8) :: dum
+ 	integer, dimension(3) :: intdum
+	Integer :: i,j,k,m,i1,k1,ishift,kshift,iyref,jc1,jc2,nsp,ibt
+	Real(mytype) :: dxdx,temp
+	Character :: chdum*8
+	Character*60, Dimension(:), Allocatable :: file3dw
+
+	Allocate(uvw(-1:nx+2,-1:ny+2,-1:nz+2),uvw2(-1:nx+2,-1:ny+2,-1:nz+2))
+	Allocate(corrm1(-1:nx+2,-1:nz+2),corrm2(-1:nx+2,-1:nz+2),corr2d(-1:nx+2,-1:nz+2),corrm2s(-1:nx+2,-1:nz+2))
+	Allocate(mean1(1:nz),mean2(1:nz),xzshift(1:ny,1:2))
+!
+	jc1=26; jc2=26; nsp=1
+	Allocate(file3dw(1:nsp))
+	file3dw=(/'../restrt-start0-stand-run8-out.rst'/)
+	mean1=0.0e0; mean2=0.0e0
+	xzshift(:,:)=0
+!
+	Open(Unit=308,File='cross-corr.plt')
+	WRITE(308,'(320A)') ' variables="x<sup>+</sup>","z<sup>+</sup>","R"'
+	Open(Unit=633,File='loc_corruv.plt')
+	WRITE(633,'(320A)') ' variables="y<sup>+</sup>","x<sup>+</sup>","z<sup>+</sup>","R<sub>max</sub>","R"'
+!
+	Do m=1,nsp
+	  Write(chdum,'(I5)') m
+	  Write(*,*) ''
+          Open(Unit=28, file=file3dw(m), Status='OLD', Form='UNFormatTED',access='stream')
+	  Read(28) intdum(:),dum(:)
+	  Write(*,*) intdum(:),dum(:)
+	  Read(28) uvw(:,:,:)
+	  Read(28) uvw2(:,:,:)
+	  Close(28)
+	Do ibt=1,2 ! top and bottom average
+!get correlation at each y location
+	WRITE(633,*) 'zone t="',m,'"'
+	Do j=1,ny/2
+	  Write(*,*) 'j=',j
+	  jc1=j; jc2=j	
+	  If(ibt==1) Then
+	    corrm1(:,:)=uvw(:,jc1,:)
+	    mean1(1:nz)=flucs(jc1,1,1)
+	  Else
+	    corrm1(:,:)=uvw(:,nyt-jc1,:)
+	    mean1(1:nz)=flucs(nyt-jc1,1,1)
+	  End If
+	  If(ibt==1) Then
+	    corrm2(:,:)=uvw2(:,jc2,:)
+	    mean2(1:nz)=flucs(jc2,2,1)
+	  Else
+	    corrm2(:,:)=uvw2(:,nyt-jc2,:)
+	    mean2(1:nz)=flucs(nyt-jc2,2,1)
+	  End If
+!
+	corr2d=0.0e0; corrm2s=0.0e0
+!
+	DO kshift=-10,10  !-50,50  !-nz/2+1,nz/2
+	  DO ishift=-15,15  !-100,100  !-nx/2+1,nx/2
+	    dxdx=0.0
+	    do k=1,nz; do i=1,nx
+	      temp=mod(i+ishift,nx)
+    	      if(temp.eq.0) then
+		i1=nx
+	      elseif(temp.gt.0) then
+		i1=temp
+	      elseif(temp.lt.0) then
+		i1=nx+temp
+	      else
+		print *, 'wrong with ishift'
+	      endif
+	      temp=mod(k+kshift,nz)
+    	      if(temp.eq.0) then
+		k1=nz
+	      elseif(temp.gt.0) then
+		k1=temp
+	      elseif(temp.lt.0) then
+		k1=temp+nz
+	      else
+		print *,'wrong with kshift'
+	      endif
+	      corrm2s(i,k)=corrm2(i1,k1)-mean2(k1)
+	    enddo; enddo
+	    do k=1,nz; do i=1,nx
+	      dxdx=dxdx+(corrm1(i,k)-mean1(k))*corrm2s(i,k)
+	    enddo; enddo
+	    corr2d(ishift+nx/2,kshift+nz/2) = dxdx/real(nx*nz,kind=mytype)
+	  END DO
+	END DO
+	If(ibt==2) corr2d(:,:)=-corr2d(:,:)
+! find the position of the minimum of uv
+	xzshift(j,1:2)=Maxloc(Abs(corr2d(1:nx,1:nz)))
+	Write(633,'(5F20.10)') ycplus(j),xcplus(xzshift(j,1))-xcplus(nx/2),zcplus(xzshift(j,2))-zcplus(nz/2),Maxval(Abs(corr2d(1:nx,1:nz)))/utau_avg_sa**2,corr2d(nx/2,nz/2)/utau_avg_sa**2
+!
+!! 	write file for correlation
+	If(j==jspec) Then
+ 	WRITE(308,*) 'zone t="',m,'", i=',nx,', j=',nz,',f=point'
+	Do k=1,nz; Do i=1,nx
+	  Write(308,'(3E15.7)') xcplus(i)-xcplus(nx/2),zcplus(k)-zcplus(nz/2),corr2d(i,k)/utau_avg_sa**2
+	End Do; End Do
+	End If
+!
+	End Do ! j
+	End Do ! ibt
+	End Do !m=1,nsp
+!
+	Close(308); Close(633)
+!
+	Deallocate(uvw,uvw2,corrm1,corrm2,corr2d,corrm2s,mean1,mean2,xzshift)
+!
+	END SUBROUTINE correlation_2D_uv
 !***************************************************************************
 	SUBROUTINE correlation(dummy_3d,countx,countz,umn,wmn)
 !	This subroutine calculates the correlations
@@ -1344,22 +1630,39 @@
 !
 	END SUBROUTINE vec_shift
 !***************************************************************************
-	SUBROUTINE correlation_spec(dummy_3d)
+	SUBROUTINE correlation_spec()
 !	This subroutine calculates the correlations in Fourier space
   	Include "fftw3.f"
-	Real(mytype), Dimension(-1:nx+2,-1:ny+2,-1:nz+2,4), Intent(in) :: dummy_3d
-!
+        Real(mytype), Dimension(:,:,:), Allocatable :: uu
 	Complex(mytype), Allocatable, Dimension(:,:) :: outfftxu,outfftxu0,outfftxus
 	Real(mytype), Allocatable, Dimension(:,:) :: spec2d
 	Real(mytype), Allocatable, Dimension(:,:) :: ux,uxinv,uxs,corr2d
 	Real(mytype), Allocatable, Dimension(:,:,:) :: AM
-	Real(mytype) :: cplxr,cplxi,cplxa,xshift,zshift,kappax,kappaz,rms0,rms
-	Integer :: i,j,k,jp,jmin,jmax,m,kx,kz,ishift,kshift,ismin,ismax,ksmin,ksmax,j1
+	Real(mytype) :: cplxr,cplxi,cplxa,xshift,zshift,kappax,kappaz,rms0,rms, &
+	  dum
+	Integer :: i,j,k,jp,jmin,jmax,m,kx,kz,ishift,kshift,ismin,ismax,ksmin,ksmax,j1,nsnaps, &
+	  intdum
         Integer*8 :: plan
+        Character :: chdum*8,file3d*60
 !
-	imodu=1;jmodu=1 !ny/2
+!	read data in
+	Allocate(uu(-1:nx+2,-1:ny+2,-1:nz+2))
+	nsnaps=1
+        Do m=1,nsnaps
+          Write(chdum,'(I5)') m
+!         file3d='snap3d_'//Trim(Adjustl(chdum))//'.dat'
+          file3d=restrt_file !'../restrt-start0-stand-run8-out.rst'
+          If(nsnaps==1) file3d=restrt_file
+          Open(Unit=14, file=file3d, Status='OLD', Form='UNFormatTED',access='stream')
+          Read(14) intdum,intdum,intdum,dum,dum,dum,dum,dum,dum,dum,dum
+          Write(*,'(A,I5,A,I5,F20.10)') 'snap:',m,'  header:',intdum,dum
+          Read(14) uu(:,:,:) !u
+          Close(14)
+        End Do
+!
+	imodu=1;jmodu=ny/2
 	jmin=1;jmax=jmodu;m=1
-	ismin=0; ismax=0; ksmin=10; ksmax=10
+	ismin=0; ismax=0; ksmin=0; ksmax=0
 	Allocate(ux(1:nx,1:nz),outfftxu(1:nx/2+1,1:nz),outfftxus(1:nx/2+1,1:nz),spec2d(1:nx/2+1,1:nz), &
 	  uxinv(1:nx,1:nz),uxs(1:nx,1:nz),corr2d(1:nxt,1:nzt),outfftxu0(1:nx/2+1,1:nz))
         spec2d(:,:)=0.0e0; ux(:,:)=0.0e0; uxs(:,:)=0.0e0; outfftxus(:,:)=0.0e0
@@ -1402,12 +1705,12 @@
 	WRITE(615,*) ' variables="z","y","R<sub>11</sub>"'
 	WRITE(615,*) 'zone i=',ksmax-ksmin+1,', j=',jmax-jmin+1,',f=point'
 !
-	Do j1=jspec,jspec !1,jmodu; Write(*,*) 'j1=',j1
-	ux(1:nx,1:nz)=dummy_3d(1:nx,j1,1:nz,m)
-	Call dfftw_plan_dft_r2c_2d(plan,nx,nz,ux,outfftxu0,FFTW_ESTIMATE)
-	Call dfftw_execute(plan)
-	outfftxu0(:,:)=outfftxu0(:,:)/Real(nx*nz,mytype)
-!!	remove large scales
+	Do j1=1,jmodu; Write(*,*) 'j1=',j1
+	  ux(1:nx,1:nz)=uu(1:nx,j1,1:nz)
+	  Call dfftw_plan_dft_r2c_2d(plan,nx,nz,ux,outfftxu0,FFTW_ESTIMATE)
+	  Call dfftw_execute(plan)
+	  outfftxu0(:,:)=outfftxu0(:,:)/Real(nx*nz,mytype)
+!!	  remove large scales
 	  Do k=1,nz; If(k<nz/2+1) Then; kz=k; Else; kz=nz-k+2; End If
 	    Do i=1,nx/2+1
 	    If((idef_sup.Eq.1 .And. (kz.Le.(kz_large+1)) .Or. &
@@ -1416,15 +1719,15 @@
 	      (idef_sup.Eq.4 .And. (kz.Le.(kz_large+1) .Or. i.Le.(kx_large+1)) ) ) Then !kz<=kz_large
 !	      outfftxu0(i,k)=0.0e0
 	    Else
-!	      outfftxu0(i,k)=0.0e0
+	      outfftxu0(i,k)=0.0e0
   	    End If
 	  End Do; End Do
 	spec2d(1:nx/2+1,1:nz)=Conjg(outfftxu0(1:nx/2+1,1:nz))*outfftxu0(1:nx/2+1,1:nz)
 	rms0=Sqrt(Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
 		Sum(spec2d(nx/2+1,1:nz)))
 !
-	Do jp=jspec,jspec !1,j1 !jmin,jmax
-          ux(1:nx,1:nz)=dummy_3d(1:nx,jp,1:nz,m)
+	Do jp=1,jmodu !1,j1 !jmin,jmax
+          ux(1:nx,1:nz)=uu(1:nx,jp,1:nz)
 	  Call dfftw_plan_dft_r2c_2d(plan,nx,nz,ux,outfftxu,FFTW_ESTIMATE)
 	  Call dfftw_execute(plan)!
 	  outfftxu(:,:)=outfftxu(:,:)/Real(nx*nz,mytype)
@@ -1450,7 +1753,7 @@
 		Sum(spec2d(nx/2+1,1:nz)))
 !
 	  corr2d(:,:)=0.0e0
-	  Do kshift=ksmin,ksmax; Write(*,*) 'kshift=',kshift; Do ishift=ismin,ismax
+	  Do kshift=ksmin,ksmax; Do ishift=ismin,ismax
 	  xshift=length*Real(ishift)/Real(nx); zshift=width*Real(kshift)/Real(nz)
           Do k=1,nz; 
             If(k<nz/2+1) Then; kz=k-1; Else; kz=-(nz-k+1); End If
@@ -1458,10 +1761,12 @@
 	    Do i=1,nx/2+1
             kappax=2.0e0*pi/length*Real(i-1)           
 !
-            cplxr=Real(outfftxu(i,k)); cplxi=Aimag(outfftxu(i,k))
-            cplxa=Atan2(cplxi,cplxr)
-            outfftxus(i,k)=Abs(outfftxu(i,k))*cmplx(cos(cplxa+kappax*xshift+kappaz*zshift), &
-                  sin(cplxa+kappax*xshift+kappaz*zshift))
+!!            cplxr=Real(outfftxu(i,k)); cplxi=Aimag(outfftxu(i,k))
+!!            cplxa=Atan2(cplxi,cplxr)
+!!            outfftxus(i,k)=Abs(outfftxu(i,k))*cmplx(cos(cplxa+kappax*xshift+kappaz*zshift), &
+!!                  sin(cplxa+kappax*xshift+kappaz*zshift))
+            outfftxus(i,k)=outfftxu(i,k)*cmplx(cos(kappax*xshift+kappaz*zshift), &
+                  sin(kappax*xshift+kappaz*zshift))
           End Do; End Do
 !
 !	calculate the coviarance
@@ -1472,9 +1777,9 @@
 !	Write inversed flow field
 	  Call dfftw_plan_dft_c2r_2d(plan,nx,nz,outfftxus,ux,FFTW_ESTIMATE)
 	  Call dfftw_execute(plan)
-	  Do k=1,nz; Do i=1,nx
-	    Write(611,'(10E15.7)') ux(i,k)
-	  End Do; End Do
+!	  Do k=1,nz; Do i=1,nx
+!	    Write(611,'(10E15.7)') ux(i,k)
+!	  End Do; End Do
 !
 	  End Do; End Do
 !
@@ -1489,10 +1794,10 @@
 !	  Do kshift=ksmin,ksmax
 !	    Write(613,*) zc(kshift+nz/2+1)-zc(nz/2+1),corr2d(nx/2+1,kshift+nz/2+1)/rms0/rms
 !	  End Do
-	  Do kshift=ksmin,ksmax; Do ishift=ismin,ismax
-	    Write(614,*) xc(ishift+nx/2+1)-xc(nx/2+1),zc(kshift+nz/2+1)-zc(nz/2+1), &
-		corr2d(ishift+nx/2+1,kshift+nz/2+1)/rms0/rms  
-	  End Do; End Do
+!	  Do kshift=ksmin,ksmax; Do ishift=ismin,ismax
+!	    Write(614,*) xc(ishift+nx/2+1)-xc(nx/2+1),zc(kshift+nz/2+1)-zc(nz/2+1), &
+!		corr2d(ishift+nx/2+1,kshift+nz/2+1)/rms0/rms  
+!	  End Do; End Do
 !
 !!	  Do ishift=ismin,ismax
 !	  Do kshift=ksmin,ksmax
@@ -1508,7 +1813,7 @@
 !
 	Close(611); Close(612); Close(613); Close(614); Close(615)
 
-	Deallocate(spec2d,outfftxu,outfftxu0,outfftxus,ux,uxinv,uxs,corr2d)
+	Deallocate(spec2d,outfftxu,outfftxu0,outfftxus,ux,uxinv,uxs,corr2d,uu)
 !
 	END SUBROUTINE correlation_spec
 !
@@ -2399,25 +2704,60 @@ End Do
 
 	End Subroutine spectra2D2
 !***************************************************************************
-	SUBROUTINE pdf(dummy_3d,umn)
+	SUBROUTINE pdf
 !	This subroutine calculates the 2D pdf (probability density function)
 ! 	The first example is for u'v'
-	Real(mytype), Dimension(-1:nx+2,-1:ny+2,-1:nz+2,4), Intent(in) :: dummy_3d
-	Real(mytype), Dimension(ny), Intent(in)  :: umn
+	Real(mytype), Dimension(:,:,:), Allocatable :: uvw,uvw2
 !
-	Integer :: i,j,k, i1,j1,k1, jp, np, cnt
+	Integer :: i,j,k, i1,j1,k1, jp, np, cnt, m, nsp, ibt
 	Real(mytype), Allocatable, Dimension(:,:) :: dumu,dumv
 	Real(mytype), Allocatable, Dimension(:,:) :: cdf, pdf1
 	Real(mytype) :: umin,umax,vmin,vmax, du,dv, ulim, vlim, tmp
+        Real(mytype), dimension(8) :: dum
+ 	Integer, Dimension(3) :: intdum
+	Character :: chdum*8
+	Character*60, Dimension(:), Allocatable :: file3dw
 !
+	Allocate(uvw(-1:nx+2,-1:ny+2,-1:nz+2),uvw2(-1:nx+2,-1:ny+2,-1:nz+2))
 	Allocate(dumu(1:nx,1:nz),dumv(1:nx,1:nz))
-	jp=jspec
+	jp=jspec; nsp=1
+	Allocate(file3dw(1:nsp))
+	file3dw=(/'../restrt-start0-stand-run8-out.rst'/)
 	WRITE(*,*) 'Get the pdf for uv at y=',y(jp),'yp=',yplus(jp)
+
+! write data to file
+	OPEN(UNIT=311,FILE='pdf-uv.plt')
+	WRITE(311,'(320A)') ' variables="u","v","pdf","cdf"'
+	OPEN(UNIT=312,FILE='quadrant-scatter.plt')
+	WRITE(312,'(320A)') ' variables="u","v"'
+
+	Do m=1,nsp
+	  Write(chdum,'(I5)') m
+	  Write(*,*) ''
+          Open(Unit=28, file=file3dw(m), Status='OLD', Form='UNFormatTED',access='stream')
+	  Read(28) intdum(:),dum(:)
+	  Write(*,*) intdum(:),dum(:)
+	  Read(28) uvw(:,:,:)
+	  Read(28) uvw2(:,:,:)
+	  Close(28)
+
+	Do ibt=1,2 ! top and bottom average
+!
 	DO k=1,nz; DO i=1,nx
-	  dumu(i,k)=0.5e0*(dummy_3d(i,jp,k,1)+dummy_3d(i+1,jp,k,1))
-	  dumu(i,k)=dumu(i,k)-umn(jp)
-	  dumv(i,k)=0.5e0*(dummy_3d(i,jp,k,2)+dummy_3d(i,jp+1,k,2))
-	END DO; END DO
+	  dumu(i,k)=0.5e0*(uvw(i,jp,k)+uvw(i+1,jp,k))
+	  dumv(i,k)=0.5e0*(uvw2(i,jp,k)+uvw2(i,jp+1,k))
+ 	END DO; END DO
+	If(ibt==1) Then
+	  DO k=1,nz; DO i=1,nx
+	    dumu(i,k)=dumu(i,k)-flucs(jp,1,1)
+	    dumv(i,k)=dumv(i,k)-flucs(jp,2,1)
+	  END DO; END DO
+	Else
+	  DO k=1,nz; DO i=1,nx
+	    dumu(i,k)=dumu(i,k)-flucs(nyt-jp,1,1)
+	    dumv(i,k)=dumv(i,k)-flucs(nyt-jp,2,1)
+	  END DO; END DO
+	End If
 ! non-dimensionalisation
 	dumu(1:nx,1:nz)=dumu(1:nx,1:nz)/utau_avg_sa
 	dumv(1:nx,1:nz)=dumv(1:nx,1:nz)/utau_avg_sa
@@ -2450,24 +2790,24 @@ End Do
 !	  pdf1(i1,k1)=(cdf(i1,k1+1)-cdf(i1-1,k1+1)-cdf(i1,k1)+cdf(i1-1,k1))/4.0e0/du/dv
 	END DO; END DO
 
-! write data to file
-	OPEN(UNIT=311,FILE='pdf-uv.plt')
-	WRITE(311,'(320A)') ' variables="u","v","pdf","cdf"'
- 	WRITE(311,*) 'zone i=',np-1,', j=',np-1,',f=point'
+ 	WRITE(311,*) 'zone t="',m,'", i=',np-1,', j=',np-1,',f=point'
 	DO k=2,np; DO i=2,np
 	  WRITE(311,'(4F20.10)') du*REAL(i-1)+umin, dv*REAL(k-1)+vmin, pdf1(i,k), cdf(i,k)
 	END DO; END DO
-	CLOSE(311)
-
-	OPEN(UNIT=312,FILE='quadrant-scatter.plt')
-	WRITE(312,'(320A)') ' variables="u","v"'
- 	WRITE(312,*) 'zone i=',nx,', j=',nz,',f=point'
+	
+ 	WRITE(312,*) 'zone t="',m,'", i=',nx,', j=',nz,',f=point'
 	DO k=1,nz; DO i=1,nx
 	  WRITE(312,'(2F20.10)') dumu(i,k), dumv(i,k)
 	END DO; END DO
-	CLOSE(312)	
+!
+	Deallocate(cdf,pdf1)
+!
+	End Do ! ibt
+	End Do !m=1,nsp
 
-	DEALLOCATE(cdf,pdf1,dumu,dumv)
+	CLOSE(311); CLOSE(312)	
+
+	DEALLOCATE(dumu,dumv,uvw,uvw2,file3dw)
 	END SUBROUTINE pdf
 !*******************************************************************************
 !***************************************************************************
@@ -2621,7 +2961,7 @@ End Do
 	  IF(umax.LT.dumu(i,k)) umax=dumu(i,k)
 	END DO; END DO
 !fixed u range
-	If(irangefix==1) umin=-5.0e0; umax=5.0e0
+	If(irangefix==1) Then; umin=-5.0e0; umax=5.0e0; End If
 	DO k=1,nz; DO i=1,nx
 	  If(ipos==1) Then
 	    If(usuper(i,k)<0.0e0) dumu(i,k)=umin-1.0e0
@@ -2907,10 +3247,19 @@ End Do
 	    Read(504) dummy_2d(:,:,2) !v
 	    Read(504) dummy_2d(:,:,3) !w
 	    Read(504) dummy_2d(:,:,4) !p
-!	    Write(file2d,'(I)') l
-!	    file2d='plane_'//Trim(Adjustl(file2d))//'.plt'
-!	    Close(501)
-!	    Open(501,File=file2d)
+!
+	    Write(file2d,'(I)') l
+	    If(itec==1) Then
+	    file2d='plane_'//Trim(Adjustl(file2d))//'.plt'
+	    Else; file2d='plane_'//Trim(Adjustl(file2d))//'.vtk'; End If
+	    If(l.Ge.2) Then
+	      Close(501); Open(501,File=file2d)
+	      Write(501,'(A)') '# vtk DataFile Version 2.0'
+	      Write(501,'(A)') 'Volume example'
+	      Write(501,'(A)') 'ASCII'
+	      Write(501,'(A)') 'DATASET RECTILINEAR_GRID'
+	    End If
+!
 	    If(iconstruc.Eq.0) Then
 	      If(itec==1) Then
  	        WRITE(501,*) 'zone t="',dumm,'" i=',dim1+2,', j=',dim2+2,'f=point'
@@ -3099,7 +3448,7 @@ End Do
 
 	  Open(28, File='lambda2-rms.plt', status='UNKNOWN')
 	  WRITE(28,*) ' title="lambda2-rms.plt"'
-	  WRITE(28,'(120A)') ' variables="y<sup>+</sup>","-<greek>l</greek><sub>2</sub>-mean","<greek>l</greek><sub>2</sub>-rms"'
+	  WRITE(28,'(120A)') ' variables="y<sup>+</sup>","-<greek>l</greek><sub>2</sub>-mean","<greek>l</greek><sub>2</sub>-rms","-<greek>l</greek><sub>2-</sub>-mean","-<greek>l</greek><sub>2+</sub>-mean","<greek>f<\greek>"'
 
 	  Open(29, File='indiv-struc.plt', status='UNKNOWN')
 	  WRITE(29,*) ' title="indiv-strucplt"'
@@ -3218,6 +3567,1047 @@ Write(*,*) 'iconstruc=',iconstruc
 !
 	END SUBROUTINE write_modulation
 !***************************************************************************
+!*******************************************************************************
+        Subroutine plasma_decompose
+  	Include "fftw3.f"
+! 	this subroutine decomposes the plasma force region to Fourier modes
+        Real(mytype), Allocatable, Dimension(:,:) :: fbody,fmode
+	Real(mytype), Allocatable, Dimension(:) :: cactu,hdisp,hdisn,dum_1d
+	Complex(mytype), Allocatable, Dimension(:) :: outfftz
+	Real(mytype) :: lambda,sigma,St,expo,rayl,raylstrp,raylstrn
+        Integer :: i,j,k,n,nactu
+        Integer*8 :: plan1,plan2
+!
+	nactu=24
+	Allocate(outfftz(nz/2+1),fbody(1:jvis,1:nz),fmode(1:jvis,1:nz),dum_1d(1:nz))
+!	plasma body force
+        Allocate(cactu(1:nactu),hdisp(1:nz),hdisn(1:nz))
+        cactu(:)=0.0e0; hdisp(:)=0.0e0; hdisn(:)=0.0e0
+	lambda=45.0e0; sigma=0.07e0; St=1.0e0
+        expo=0.0e0; rayl=0.0e0
+	fmode(:,:)=0.0e0
+        Do n=1,nactu
+          cactu(n)=width/real(nactu,mytype)*real(n-1,mytype)
+        End Do
+        Do k=1,nz; Do n=1,nactu
+          raylstrp=modulo(z(k)-cactu(n)+width,width)
+          raylstrn=modulo(cactu(n)-z(k)+width,width)
+          hdisp(k)=hdisp(k)+raylstrp/sigma**2*exp(-raylstrp**2/(2.0*sigma**2))
+          hdisn(k)=hdisn(k)-raylstrn/sigma**2*exp(-raylstrn**2/(2.0*sigma**2))
+        End Do; End Do
+	Do j=1,ny/2
+	  expo=lambda*exp(-lambda*yc(j))
+	  Do k=1,nz
+	  fbody(j,k)=St/lambda*sigma*sqrt(exp(1.0e0))*expo*hdisp(k)
+	End Do; End Do
+!
+	Open(unit=628,file='spec_fbody.plt')
+	Write(628,'(10A)') ' variables="<greek>l</greek><sub>z</sub><sup>+</sup>", &
+	"yc","<greek>F</greek>","k<sub>z</sub><greek>F</greek>"'
+	Write(628,*) 'zone i=',nz/2,', j=',jvis,',f=point'
+!
+	Do j=1,jvis
+!	forward Fourier transform
+	  dum_1d(1:nz)=fbody(j,1:nz)
+	  Call dfftw_plan_dft_r2c_1d(plan1,nz,dum_1d,outfftz,FFTW_ESTIMATE)
+	  Call dfftw_execute(plan1)
+	  Call dfftw_destroy_plan(plan1)
+	  outfftz(:)=outfftz(:)/Real(nz,mytype)
+	  Do k=2,nz/2+1
+	    Write(628,'(4F20.10)') width/Real(k-1,mytype)*retau_avg_sa,yc(j),Abs(outfftz(k)), &
+		2.0e0*pi/(width/Real(k-1,mytype)*retau_avg_sa)*Abs(outfftz(k))
+	  End Do
+!	filtering (harmonics k=1,13,25,37,49,61,73 ...)
+	Do k=1,nz/2+1
+!	  If(Mod(k-1,12).Eq.0.And.k<=nz) Then
+	  If(k==1) Then
+	  Else; outfftz(k)=0.0e0; End If
+	End Do
+!	backward Fourier transform
+	  Call dfftw_plan_dft_c2r_1d(plan2,nz,outfftz,dum_1d,FFTW_ESTIMATE)
+	  Call dfftw_execute(plan2)
+	  Call dfftw_destroy_plan(plan2)
+	  fmode(j,1:nz)=dum_1d(1:nz)
+	End Do
+	Close(628)
+	
+!	Write the plasma body force out
+	Open(627, File='fbody.vtk', status='UNKNOWN')
+	Write(627,'(A)') '# vtk DataFile Version 2.0'
+	Write(627,'(A)') 'Volume example'
+	Write(627,'(A)') 'ASCII'
+	Write(627,'(A)') 'DATASET RECTILINEAR_GRID'
+	Write(627,'(A,3I10)') 'DIMENSIONS',1,jvis,nz
+	Write(627,'(A,I10,A)') 'X_COORDINATES', 1, ' float'
+	Do i=1,1; Write(627,'(E15.7)') xc(i); End Do
+	Write(627,'(A,I10,A)') 'Y_COORDINATES', jvis, ' float'
+	Do j=1,jvis; Write(627,'(E15.7)') yc(j); End Do
+	Write(627,'(A,I10,A)') 'Z_COORDINATES', nz, ' float'
+	Do k=1,nz; Write(627,'(E15.7)') zc(k); End Do
+	Write(627,'(A,I10)') 'POINT_DATA',nz*jvis
+	Write(627,'(A)') 'SCALARS fbody float 1'
+	Write(627,'(A)') 'LOOKUP_TABLE default'
+	Write(627,'(10E20.10)') ((fbody(j,k),j=1,jvis),k=1,nz)
+	Write(627,'(A)') 'SCALARS fmode float 1'
+	Write(627,'(A)') 'LOOKUP_TABLE default'
+	Write(627,'(10E20.10)') ((fmode(j,k),j=1,jvis),k=1,nz)
+	Close(627)
+!
+	Deallocate(fbody,fmode,cactu,hdisp,hdisn)
+
+        End Subroutine plasma_decompose
+
+!*******************************************************************************
+	SUBROUTINE calc_quad
+	Real(mytype), Dimension(:,:,:,:), Allocatable :: field_3d
+	Real(mytype), Allocatable, Dimension(:,:) :: umean,vmean,uv_2d,q1_2d,q2_2d,q3_2d,q4_2d
+	Real(mytype), Allocatable, Dimension(:) :: q1,q2,q3,q4,uv
+	Real(mytype) :: utmp,vtmp,dum
+	Integer :: i,j,k,idir,intdum,m,nsnaps,nactu,kp,iw
+	Character :: chdum*8,file3d*60
+!
+	nsnaps=1; nactu=12; iw=1
+	Allocate(field_3d(-1:nx+2,-1:ny+2,-1:nz+2,1:2))
+	Allocate(umean(1:ny,1:nz),vmean(1:ny,1:nz),q1(1:ny),q2(1:ny),q3(1:ny),q4(1:ny),uv(1:ny))
+	Allocate(q1_2d(1:ny,1:nz),q2_2d(1:ny,1:nz),q3_2d(1:ny,1:nz),q4_2d(1:ny,1:nz),uv_2d(1:ny,1:nz))
+	umean(:,:)=0.0e0; vmean(:,:)=0.0e0
+	q1(:)=0.0e0; q2(:)=0.0e0; q3(:)=0.0e0; q4(:)=0.0e0
+	q1_2d(:,:)=0.0e0; q2_2d(:,:)=0.0e0; q3_2d(:,:)=0.0e0; q4_2d(:,:)=0.0e0
+!
+Do m=1,nsnaps
+  Write(chdum,'(I5)') m
+  file3d='snap3d_'//Trim(Adjustl(chdum))//'.dat'
+  If(nsnaps==1) file3d=restrt_file
+  Open(Unit=14, file=file3d, Status='OLD', Form='UNFormatTED',access='stream')
+  READ(14) intdum,intdum,intdum,dum,dum,dum,dum,dum,dum,dum,dum
+  Write(*,'(A,I5,A,I5,F20.10)') 'snap:',m,'  header:',intdum,dum
+  READ(14) field_3d(:,:,:,1) ! u
+  READ(14) field_3d(:,:,:,2) ! v
+!
+	Do k=1,nz; Do j=1,ny
+	  umean(j,k)=stat1d_sa(j,1,1,k)  !Sum(dummy_3d(1:nx,j,1:nz))/Real(nx*nz)
+	  vmean(j,k)=stat1d_sa(j,2,1,k)  !Sum(dummy_3d(1:nx,j,1:nz))/Real(nx*nz)
+	End Do; End Do
+!
+	Do j=1,ny
+	  Do k=1,nz; Do i=1,nx
+	    utmp=0.5e0*(field_3d(i,j,k,1)+field_3d(i+1,j,k,1))-umean(j,k)
+	    vtmp=0.5e0*(field_3d(i,j,k,2)+field_3d(i,j+1,k,2))-vmean(j,k)
+	    uv(j)=uv(j)+utmp*vtmp
+	    If(utmp>0.0e0) Then
+	      If(vtmp>0.0e0) Then
+		q1(j)=q1(j)+utmp*vtmp
+	      Else If(vtmp<0.0e0) Then
+		q4(j)=q4(j)+utmp*vtmp
+	      End If
+	    Else If(utmp<0.0e0) Then
+	      If(vtmp>0.0e0) Then
+		q2(j)=q2(j)+utmp*vtmp
+	      Else If(vtmp<0.0e0) Then
+		q3(j)=q3(j)+utmp*vtmp
+	      End If
+	    End If
+	  End Do; End Do
+	End Do
+!
+	Do j=1,ny; Do k=1,nz
+	  Do i=1,nx
+	    utmp=0.5e0*(field_3d(i,j,k,1)+field_3d(i+1,j,k,1))-umean(j,k)
+	    vtmp=0.5e0*(field_3d(i,j,k,2)+field_3d(i,j+1,k,2))-vmean(j,k)
+	    uv_2d(j,k)=uv_2d(j,k)+utmp*vtmp
+	    If(utmp>0.0e0) Then
+	      If(vtmp>0.0e0) Then
+		q1_2d(j,k)=q1_2d(j,k)+utmp*vtmp
+	      Else If(vtmp<0.0e0) Then
+		q4_2d(j,k)=q4_2d(j,k)+utmp*vtmp
+	      End If
+	    Else If(utmp<0.0e0) Then
+	      If(vtmp>0.0e0) Then
+		q2_2d(j,k)=q2_2d(j,k)+utmp*vtmp
+	      Else If(vtmp<0.0e0) Then
+		q3_2d(j,k)=q3_2d(j,k)+utmp*vtmp
+	      End If
+	    End If
+	  End Do
+	End Do; End Do
+!
+  READ(14) field_3d(:,:,:,1) ! w (place holder)
+  READ(14) field_3d(:,:,:,2) ! p (place holder)
+  Close(14)
+End Do
+!	Write 1d files out
+	Open(unit=629,file='quad-ins.plt')
+	Write(629,'(10A)') ' variables="yc","uv","Q1","Q2","Q3","Q4"'
+	Do j=1,ny
+	  uv(j)=uv(j)/Real(nx*nz*nsnaps,mytype)
+	  q1(j)=q1(j)/Real(nx*nz*nsnaps,mytype)
+	  q2(j)=q2(j)/Real(nx*nz*nsnaps,mytype)
+	  q3(j)=q3(j)/Real(nx*nz*nsnaps,mytype)
+	  q4(j)=q4(j)/Real(nx*nz*nsnaps,mytype)
+	  Write(629,'(6F20.10)') yc(j),uv(j),q1(j),q2(j),q3(j),q4(j)
+	End Do
+	Close(629)
+!	Write 2d files out
+	Open(unit=630,file='quad2d-ins.plt')
+	Write(630,'(10A)') ' variables="zc","yc","uv","Q1","Q2","Q3","Q4"'
+	Write(630,*) 'zone i=',nz,', j=',ny,',f=point'
+!	 Write(*,'(A,5F10.5)') 'quad2d-ins:',yc(j)
+	Do j=1,ny; Do k=1,nz
+	  uv_2d(j,k)=uv_2d(j,k)/Real(nx*nsnaps,mytype)
+	  q1_2d(j,k)=q1_2d(j,k)/Real(nx*nsnaps,mytype)
+	  q2_2d(j,k)=q2_2d(j,k)/Real(nx*nsnaps,mytype)
+	  q3_2d(j,k)=q3_2d(j,k)/Real(nx*nsnaps,mytype)
+	  q4_2d(j,k)=q4_2d(j,k)/Real(nx*nsnaps,mytype)
+	  Write(630,'(7F20.10)') zc(k),yc(j),uv_2d(j,k),q1_2d(j,k),q2_2d(j,k),q3_2d(j,k),q4_2d(j,k)
+	End Do; End Do
+	Close(630)
+!	Write averaged 2d files out
+	Open(unit=630,file='quad2d_avg-ins.plt')
+	Write(630,'(10A)') ' variables="zc","yc","uv","Q1","Q2","Q3","Q4"'
+	Write(630,*) 'zone i=',nz/nactu,', j=',ny,',f=point'
+	Do j=1,ny; Do k=1,nz/nactu
+	  Do i=1,nactu
+	    kp=(i-1)*nz/nactu+k
+	    uv_2d(j,k)=uv_2d(j,k)+uv_2d(j,kp)
+	    q1_2d(j,k)=q1_2d(j,k)+q1_2d(j,kp)
+	    q2_2d(j,k)=q2_2d(j,k)+q2_2d(j,kp)
+	    q3_2d(j,k)=q3_2d(j,k)+q3_2d(j,kp)
+	    q4_2d(j,k)=q4_2d(j,k)+q4_2d(j,kp)
+	  End Do
+	End Do; End Do
+	uv_2d(:,:)=uv_2d(:,:)/Real(nsnaps,mytype)
+	q1_2d(:,:)=q1_2d(:,:)/Real(nsnaps,mytype)
+	q2_2d(:,:)=q2_2d(:,:)/Real(nsnaps,mytype)
+	q3_2d(:,:)=q3_2d(:,:)/Real(nsnaps,mytype)
+	q4_2d(:,:)=q4_2d(:,:)/Real(nsnaps,mytype)
+	Do j=1,ny; Do k=1,nz/nactu
+	  Write(630,'(7F20.10)') zc(k),yc(j),uv_2d(j,k),q1_2d(j,k),q2_2d(j,k),q3_2d(j,k),q4_2d(j,k)
+	End Do; End Do
+	Close(630)
+!
+	Deallocate(field_3d,umean,vmean,q1,q2,q3,q4,uv)
+	Deallocate(q1_2d,q2_2d,q3_2d,q4_2d,uv_2d)
+!
+	END SUBROUTINE calc_quad
+
+!*******************************************************************************
+	SUBROUTINE calc_am1p
+! this subroutine calculates the one point amplitude modulation based on Mathis_etal_JFM2010
+	Include "fftw3.f"
+	Real(mytype), Dimension(:,:,:), Allocatable :: uu
+	Complex(mytype), Allocatable, Dimension(:) :: outfftx,outfftx2
+	Real(mytype), Allocatable, Dimension(:) :: ux,ulx,usx,uex,uhx,uelx,am,arr1d
+	Character :: chdum*8,file3d*60
+	Real(mytype) :: dum,yam,theta,alpha,beta,uol,ustar,corr1,corr2,tmp
+	Integer :: intdum,nsnaps
+	Integer :: m,i,j,k,jp,ip,kp,ind
+        Integer*8 :: planx
+  	INTEGER :: i_seed
+  	INTEGER, DIMENSION(:), ALLOCATABLE :: a_seed
+  	INTEGER, DIMENSION(1:8) :: dt_seed
+!
+  	! ----- Set up random seed portably -----
+  	CALL RANDOM_SEED(size=i_seed)
+  	ALLOCATE(a_seed(1:i_seed))
+  	CALL RANDOM_SEED(get=a_seed)
+  	CALL DATE_AND_TIME(values=dt_seed)
+  	a_seed(i_seed)=dt_seed(8); a_seed(1)=dt_seed(8)*dt_seed(7)*dt_seed(6)
+  	CALL RANDOM_SEED(put=a_seed)
+  	DEALLOCATE(a_seed)
+! predictive model (Marusic_etal_Science2010)
+	alpha=1.0e0; beta=0.5e0
+!
+	nsnaps=1
+	Allocate(uu(-1:nx+2,-1:ny+2,-1:nz+2))
+	Allocate(outfftx(nx/2+1),outfftx2(nx/2+1),ux(1:nx),ulx(1:nx),usx(1:nx), &
+	uex(1:nx),uhx(1:nx),uelx(1:nx),arr1d(1:nx))
+	Allocate(am(1:ny))
+!
+	am(:)=0.0e0
+!
+	Do m=1,nsnaps
+  	  Write(chdum,'(I5)') m
+!  	  file3d='snap3d_'//Trim(Adjustl(chdum))//'.dat'
+	  file3d='../restrt-start0-stand-run8-out.rst'
+  	  If(nsnaps==1) file3d=restrt_file
+  	  Open(Unit=14, file=file3d, Status='OLD', Form='UNFormatTED',access='stream')
+  	  Read(14) intdum,intdum,intdum,dum,dum,dum,dum,dum,dum,dum,dum
+  	  Write(*,'(A,I5,A,I5,F20.10)') 'snap:',m,'  header:',intdum,dum
+  	  Read(14) uu(:,:,:) !u
+  	  Close(14)
+	End Do
+!
+!	find the y location for am calculation
+	yam=15.0e0; ip=nx/2
+	Do j=1,ny/2
+	  If(yplus(j)<yam.And.yplus(j+1)>yam) Then
+	    jp=j; Exit
+	  End If
+	End Do
+!
+	Do j=1,ny
+	  Write(*,*) 'j=',j
+!!	  shuffle the signal (Schlatter & Orlu 2010)
+!	  Do k=1,nz
+!	    arr1d(1:nx)=uu(1:nx,j,k)
+!	    Do i=nx,1,-1
+!	      CALL RANDOM_NUMBER(theta)
+!	      ind=Max(Int(theta*i),1)
+!	      tmp=arr1d(i); arr1d(i)=arr1d(ind); arr1d(ind)=tmp
+!	    End Do
+!	    uu(1:nx,j,k)=arr1d(1:nx)
+!	  End Do
+!
+	  corr1=0.0e0; corr2=0.0e0
+	  Do k=1,nz
+	  kp=k
+	  ux(1:nx)=uu(1:nx,j,kp)
+!	  an artificial signal
+!	  Do i=1,nx
+!	    ustar=Sin(2.0e0*pi/(length/20.0e0)*x(i))
+!	    uol=Sin(2.0e0*pi/(length/2.0e0)*x(i))
+!	    ux(i)=ustar*(1.0e0+beta*uol)+alpha*uol
+!	  End Do
+!	  FFT
+	  Call dfftw_plan_dft_r2c_1d(planx,nx,ux,outfftx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)
+	  Call dfftw_destroy_plan(planx)	
+	  outfftx(:)=outfftx(:)/Real(nx,mytype)
+!!	  scramble the signal (Mathis et al 2009)
+!	  Do i=1,nx/2+1
+!	    CALL RANDOM_NUMBER(theta)
+!	    theta=theta*2.0e0*pi
+!	    outfftx(i)=outfftx(i)*Cmplx(Cos(theta),Sin(theta))
+!	  End Do
+!
+!	  filtering
+	  outfftx(1)=0.0e0
+!	  inverse FFT
+	  outfftx2(:)=outfftx(:)
+	  Call dfftw_plan_dft_c2r_1d(planx,nx,outfftx2,ux,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)
+	  Call dfftw_destroy_plan(planx)
+!	  filtering
+	  outfftx2(:)=outfftx(:)
+	  Do i=2,nx/2+1
+	    If(length/Real(i-1)>=1.0e0) outfftx2(i)=0.0e0
+	  End Do
+!	  inverse FFT
+	  Call dfftw_plan_dft_c2r_1d(planx,nx,outfftx2,usx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)
+	  Call dfftw_destroy_plan(planx)
+!
+	  ulx(:)=ux(:)-usx(:)
+!	  Hilbert transform
+	  uhx(1:nx)=usx(1:nx)
+	  Call dfftw_plan_dft_r2c_1d(planx,nx,uhx,outfftx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)
+	  Call dfftw_destroy_plan(planx)
+	  outfftx(:)=outfftx(:)/Real(nx,mytype)
+	  theta=-pi/2.0e0
+	  Do i=2,nx/2+1
+	    outfftx(i)=outfftx(i)*Cmplx(Cos(theta),Sin(theta))
+	  End Do
+	  Call dfftw_plan_dft_c2r_1d(planx,nx,outfftx,uex,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)  
+	  Call dfftw_destroy_plan(planx)
+	  uex(:)=Sqrt(uhx(:)**2+uex(:)**2)
+!	  filtering the envelop
+	  Call dfftw_plan_dft_r2c_1d(planx,nx,uex,outfftx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx) 
+	  Call dfftw_destroy_plan(planx)
+	  outfftx(:)=outfftx(:)/Real(nx,mytype)
+	  outfftx(1)=0.0e0
+	  Do i=2,nx/2+1
+	    If(length/Real(i-1)<1.0e0) outfftx(i)=0.0e0
+	  End Do
+	  Call dfftw_plan_dft_c2r_1d(planx,nx,outfftx,uelx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)  
+	  Call dfftw_destroy_plan(planx)
+!	  find the AM
+	  Do i=1,nx
+	    corr1=corr1+ulx(i)**2
+	    corr2=corr2+uelx(i)**2
+	    am(j)=am(j)+ulx(i)*uelx(i)
+	  End Do
+	  End Do ! k
+	  corr1=corr1/Real(nx*nz,mytype); corr2=corr2/Real(nx*nz,mytype)
+	  am(j)=am(j)/Real(nx*nz,mytype)/Sqrt(corr1)/Sqrt(corr2)
+	End Do ! j
+!
+	Open(unit=634,file='ux-ins.plt')
+	Write(634,'(10A)') ' variables="x","u","u<sub>l</sub>","u<sub>s</sub>","u<sub>e</sub>","u<sub>el</sub>"'
+	Do i=1,nx
+	  Write(634,'(6F20.10)') x(i),ux(i),ulx(i),usx(i),uex(i),uelx(i)
+	End Do
+	Close(634)
+!
+	Open(unit=635,file='AM_Mathis.plt')
+	Write(635,'(10A)') ' variables="yc","AM","y<sup>+</sup>"'
+	Do j=1,ny
+	  Write(635,'(6F20.10)') yc(j),am(j),ycplus(j)
+	End Do
+	Close(635)
+!
+	Deallocate(uu,ux,ulx,usx,uex,uelx,uhx,outfftx,outfftx2,am,arr1d)	
+!
+	END SUBROUTINE calc_am1p
+
+!*******************************************************************************
+	SUBROUTINE calc_am1p_z
+! this subroutine calculates the one point amplitude modulation based on Mathis_etal_JFM2010 for z direction
+	Include "fftw3.f"
+	Real(mytype), Dimension(:,:,:), Allocatable :: uu
+	Complex(mytype), Allocatable, Dimension(:) :: outfftx,outfftx2
+	Real(mytype), Allocatable, Dimension(:) :: ux,ulx,usx,uex,uhx,uelx,am
+	Character :: chdum*8,file3d*60
+	Real(mytype) :: dum,yam,theta,alpha,beta,uol,ustar,corr1,corr2
+	Integer :: intdum,nsnaps
+	Integer :: m,i,j,k,jp,ip,kp
+        Integer*8 :: planx
+! predictive model (Marusic_etal_Science2010)
+	alpha=1.0e0; beta=0.5e0
+!
+	nsnaps=1
+	Allocate(uu(-1:nx+2,-1:ny+2,-1:nz+2))
+	Allocate(outfftx(nz/2+1),outfftx2(nz/2+1),ux(1:nz),ulx(1:nz),usx(1:nz),uex(1:nz),uhx(1:nz),uelx(1:nz))
+	Allocate(am(1:ny))
+!
+	am(:)=0.0e0
+!
+	Do m=1,nsnaps
+  	  Write(chdum,'(I5)') m
+!  	  file3d='snap3d_'//Trim(Adjustl(chdum))//'.dat'
+	  file3d='../restrt-start0-stand-run8-out.rst'
+  	  If(nsnaps==1) file3d=restrt_file
+  	  Open(Unit=14, file=file3d, Status='OLD', Form='UNFormatTED',access='stream')
+  	  Read(14) intdum,intdum,intdum,dum,dum,dum,dum,dum,dum,dum,dum
+  	  Write(*,'(A,I5,A,I5,F20.10)') 'snap:',m,'  header:',intdum,dum
+  	  Read(14) uu(:,:,:) !u
+  	  Close(14)
+	End Do
+!
+!	find the y location for am calculation
+	yam=15.0e0; ip=nx/2
+	Do j=1,ny/2
+	  If(yplus(j)<yam.And.yplus(j+1)>yam) Then
+	    jp=j; Exit
+	  End If
+	End Do
+!
+	Do j=1,ny !jp,jp
+	  Write(*,*) 'j=',j
+	  corr1=0.0e0; corr2=0.0e0
+	  Do i=1,nx
+	  ip=i
+	  ux(1:nz)=uu(ip,j,1:nz)
+!	  FFT
+	  Call dfftw_plan_dft_r2c_1d(planx,nz,ux,outfftx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)
+	  Call dfftw_destroy_plan(planx)	
+	  outfftx(:)=outfftx(:)/Real(nz,mytype)
+!	  filtering
+	  outfftx(1)=0.0e0
+!	  inverse FFT
+	  outfftx2(:)=outfftx(:)
+	  Call dfftw_plan_dft_c2r_1d(planx,nz,outfftx2,ux,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)
+	  Call dfftw_destroy_plan(planx)
+!	  filtering
+	  outfftx2(:)=outfftx(:)
+	  Do k=2,nz/2+1
+	    If(width/Real(k-1)>=1.0e0) outfftx2(k)=0.0e0
+	  End Do
+!	  inverse FFT
+	  Call dfftw_plan_dft_c2r_1d(planx,nz,outfftx2,usx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)
+	  Call dfftw_destroy_plan(planx)
+!
+	  ulx(:)=ux(:)-usx(:)
+!	  Hilbert transform
+	  uhx(:)=usx(:)
+	  Call dfftw_plan_dft_r2c_1d(planx,nz,uhx,outfftx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)
+	  Call dfftw_destroy_plan(planx)
+	  outfftx(:)=outfftx(:)/Real(nz,mytype)
+	  theta=-pi/2.0e0
+	  Do k=2,nz/2+1
+	    outfftx(k)=outfftx(k)*Cmplx(Cos(theta),Sin(theta))
+	  End Do
+	  Call dfftw_plan_dft_c2r_1d(planx,nz,outfftx,uex,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)  
+	  Call dfftw_destroy_plan(planx)
+	  uex(:)=Sqrt(uhx(:)**2+uex(:)**2)
+!	  filtering the envelop
+	  Call dfftw_plan_dft_r2c_1d(planx,nz,uex,outfftx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx) 
+	  Call dfftw_destroy_plan(planx)
+	  outfftx(:)=outfftx(:)/Real(nz,mytype)
+	  outfftx(1)=0.0e0
+	  Do k=2,nz/2+1
+	    If(width/Real(k-1)<1.0e0) outfftx(k)=0.0e0
+	  End Do
+	  Call dfftw_plan_dft_c2r_1d(planx,nz,outfftx,uelx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planx)  
+	  Call dfftw_destroy_plan(planx)
+!	  find the AM
+	  Do k=1,nz
+	    corr1=corr1+ulx(k)**2
+	    corr2=corr2+uelx(k)**2
+	    am(j)=am(j)+ulx(k)*uelx(k)
+	  End Do
+	  End Do ! i
+	  corr1=corr1/Real(nx*nz,mytype); corr2=corr2/Real(nx*nz,mytype)
+	  am(j)=am(j)/Real(nx*nz,mytype)/Sqrt(corr1)/Sqrt(corr2)
+	End Do ! j
+!
+	Open(unit=634,file='uz-ins.plt')
+	Write(634,'(10A)') ' variables="zc","u","u<sub>l</sub>","u<sub>s</sub>","u<sub>e</sub>","u<sub>el</sub>"'
+	Do k=1,nz
+	  Write(634,'(6F20.10)') zc(k),ux(k),ulx(k),usx(k),uex(k),uelx(k)
+	End Do
+	Close(634)
+!
+	Open(unit=635,file='AM_Mathis_z.plt')
+	Write(635,'(10A)') ' variables="yc","AM","y<sup>+</sup>"'
+	Do j=1,ny
+	  Write(635,'(6F20.10)') yc(j),am(j),ycplus(j)
+	End Do
+	Close(635)
+!
+	Deallocate(uu,ux,ulx,usx,uex,uelx,uhx,outfftx,outfftx2,am)	
+!
+	END SUBROUTINE calc_am1p_z
+
+!*******************************************************************************
+	SUBROUTINE calc_am2p
+! this subroutine calculates the two point amplitude modulation based on Bernardini_Pirozzoli_PF2011
+	Include "fftw3.f"
+	Real(mytype), Dimension(:,:,:), Allocatable :: uu
+	Complex(mytype), Allocatable, Dimension(:,:) :: outfftxz,outfftxz1,outfftxz2
+	Real(mytype), Allocatable, Dimension(:,:) :: ux,ulx,usx,uex,uhx,uelx,spec2d
+	Real(mytype), Allocatable, Dimension(:,:) :: am
+	Character :: chdum*8,file3d*60
+	Real(mytype) :: dum,yam,theta,alpha,beta,uol,ustar,corr0,corr1,corr2
+	Integer :: intdum,nsnaps
+	Integer :: m,i,j,k,jp,ip,kp,j1,j2
+        Integer*8 :: planxz
+!
+	nsnaps=1
+	Allocate(uu(-1:nx+2,-1:ny+2,-1:nz+2))
+	Allocate(outfftxz(1:nx/2+1,1:nz),outfftxz1(nx/2+1,1:nz),outfftxz2(nx/2+1,1:nz),ux(1:nx,1:nz), &
+ulx(1:nx,1:nz),usx(1:nx,1:nz),uex(1:nx,1:nz),uhx(1:nx,1:nz),uelx(1:nx,1:nz),spec2d(1:nx/2+1,1:nz))
+	Allocate(am(1:ny,1:ny))
+!
+	am(:,:)=0.0e0
+!
+	Do m=1,nsnaps
+  	  Write(chdum,'(I5)') m
+!  	  file3d='snap3d_'//Trim(Adjustl(chdum))//'.dat'
+	  file3d=restrt_file !'../restrt-start0-stand-run8-out.rst'
+  	  If(nsnaps==1) file3d=restrt_file
+  	  Open(Unit=14, file=file3d, Status='OLD', Form='UNFormatTED',access='stream')
+  	  Read(14) intdum,intdum,intdum,dum,dum,dum,dum,dum,dum,dum,dum
+  	  Write(*,'(A,I5,A,I5,F20.10)') 'snap:',m,'  header:',intdum,dum
+  	  Read(14) uu(:,:,:) !u
+  	  Close(14)
+	End Do
+!
+!	find the y location for am calculation
+	yam=15.0e0; ip=nx/2; kp=nz/2
+	Do j=1,ny/2
+	  If(yplus(j)<yam.And.yplus(j+1)>yam) Then
+	    jp=j; Exit
+	  End If
+	End Do
+!
+	Do j1=1,jmodu
+	  Write(*,*) 'j1=',j1
+	  ux(1:nx,1:nz)=uu(1:nx,j1,1:nz)
+!	  FFT
+	  Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,ux,outfftxz,FFTW_ESTIMATE)
+	  Call dfftw_execute(planxz)
+	  Call dfftw_destroy_plan(planxz)	
+	  outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+!	  filtering
+	  outfftxz(1,:)=0.0e0
+	  outfftxz1(:,:)=outfftxz(:,:)
+	  Do i=2,nx/2+1
+	    If(length/Real(i-1)<1.0e0) outfftxz1(i,1:nz)=0.0e0
+	  End Do
+!	  inverse FFT
+	  Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz1,ulx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planxz)
+	  Call dfftw_destroy_plan(planxz)
+!
+	  Do j2=1,j1
+	    ux(1:nx,1:nz)=uu(1:nx,j2,1:nz)
+!	    FFT
+	    Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,ux,outfftxz,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)
+	    Call dfftw_destroy_plan(planxz)	
+	    outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+!	    filtering
+	    outfftxz(1,:)=0.0e0
+!	    inverse FFT
+	    outfftxz2(:,:)=outfftxz(:,:)
+	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz2,ux,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)
+	    Call dfftw_destroy_plan(planxz)
+!	    filtering
+	    outfftxz2(:,:)=outfftxz(:,:)
+	    Do i=2,nx/2+1
+	      If(length/Real(i-1)<1.0e0) outfftxz2(i,1:nz)=0.0e0
+	    End Do
+!	    inverse FFT
+	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz2,ulx,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)
+	    Call dfftw_destroy_plan(planxz)
+!
+	    usx(:,:)=ux(:,:)-ulx(:,:)
+!	    Hilbert transform
+	    uhx(1:nx,1:nz)=usx(1:nx,1:nz)
+	    Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,uhx,outfftxz,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)
+	    Call dfftw_destroy_plan(planxz)
+	    outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+	    theta=-pi/2.0e0
+	    Do i=2,nx/2+1
+	      outfftxz(i,1:nz)=outfftxz(i,1:nz)*Cmplx(Cos(theta),Sin(theta))
+	    End Do
+	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz,uex,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)  
+	    Call dfftw_destroy_plan(planxz)
+	    uex(:,:)=Sqrt(uhx(:,:)**2+uex(:,:)**2)
+!	    filtering the envelop
+	    Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,uex,outfftxz,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz) 
+	    Call dfftw_destroy_plan(planxz)
+	    outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+	    outfftxz(1,1:nz)=0.0e0
+	    Do i=2,nx/2+1
+	      If(length/Real(i-1)<1.0e0) outfftxz(i,1:nz)=0.0e0
+	    End Do
+	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz,uelx,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)  
+	    Call dfftw_destroy_plan(planxz)
+!	    find the AM  
+!	    calculate the coviarance
+	    spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz(1:nx/2+1,1:nz))*outfftxz1(1:nx/2+1,1:nz)
+	    corr0=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+		Sum(spec2d(nx/2+1,1:nz))
+	    spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz(1:nx/2+1,1:nz))*outfftxz(1:nx/2+1,1:nz)
+	    corr1=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+	  	Sum(spec2d(nx/2+1,1:nz))
+	    spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz1(1:nx/2+1,1:nz))*outfftxz1(1:nx/2+1,1:nz)
+	    corr2=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+	  	Sum(spec2d(nx/2+1,1:nz))
+	    am(j1,j2)=corr0/Sqrt(corr1*corr2)
+	  End Do !j2
+	End Do !j1
+!
+!	Open(unit=634,file='uxz-ins.plt')
+!	Write(634,'(10A)') ' variables="x","z","u","u<sub>l</sub>","u<sub>s</sub>","u<sub>e</sub>","u<sub>el</sub>"'
+!	Write(634,'(A,I5,A,I5,A)') 'zone i=',nx,', j=',nz,',f=point'
+!	Do k=1,nz; Do i=1,nx
+!	  Write(634,'(7F20.10)') x(i),zc(k),ux(i,k),ulx(i,k),usx(i,k),uex(i,k),uelx(i,k)
+!	End Do; End Do
+!	Close(634)
+!
+	Open(unit=635,file='AM_Mathis.plt')
+	Write(635,'(10A)') ' variables="yc","AM","y<sup>+</sup>"'
+	Do j=1,ny
+	  Write(635,'(6F20.10)') yc(j),am(j,j),ycplus(j)
+	End Do
+	Close(635)
+!
+	Open(Unit=636,File='AM_2p.plt')
+	WRITE(636,'(320A)') ' variables="y<sub>1</sub><sup>+</sup>","y<sub>2</sub><sup>+</sup>","AM"'
+ 	WRITE(636,*) 'zone i=',jmodu,', j=',jmodu,',f=point'
+	Do j1=1,jmodu; Do j2=1,jmodu
+	  Write(636,'(5E15.7)') ycplus(j1),ycplus(j2),am(j1,j2)
+	End Do; End Do
+	Close(636)
+!
+	Deallocate(uu,ux,ulx,usx,uex,uelx,uhx,outfftxz,outfftxz1,outfftxz2,am,spec2d)	
+!
+	END SUBROUTINE calc_am2p
+
+!*******************************************************************************
+	SUBROUTINE calc_am2p_simplify
+! this subroutine calculates the two point amplitude modulation based on Bernardini_Pirozzoli_PF2011
+! simplified version of calc_am2p to reduced computing time
+! filtered in x direction
+	Include "fftw3.f"
+	Real(mytype), Dimension(:,:,:), Allocatable :: uu
+	Complex(mytype), Allocatable, Dimension(:,:) :: outfftxz,outfftxz1,outfftxz2
+	Real(mytype), Allocatable, Dimension(:,:) :: ux,ulx,usx,uex,uhx,uelx,spec2d
+	Real(mytype), Allocatable, Dimension(:,:) :: am
+	Character :: chdum*8,file3d*60
+	Real(mytype) :: dum,yam,theta,alpha,beta,uol,ustar,corr0,corr1,corr2, &
+	xshift,zshift,kappax,kappaz
+	Integer :: intdum,nsnaps
+	Integer :: m,i,j,k,jp,ip,kp,j1,j2
+        Integer*8 :: planxz
+!
+	nsnaps=1; jmodu=ny/2
+	Allocate(uu(-1:nx+2,-1:ny+2,-1:nz+2))
+	Allocate(outfftxz(1:nx/2+1,1:nz),outfftxz1(nx/2+1,1:nz),outfftxz2(nx/2+1,1:nz),ux(1:nx,1:nz), &
+ulx(1:nx,1:nz),usx(1:nx,1:nz),uex(1:nx,1:nz),uhx(1:nx,1:nz),uelx(1:nx,1:nz),spec2d(1:nx/2+1,1:nz))
+	Allocate(am(1:ny,1:ny))
+!
+	am(:,:)=0.0e0
+!
+	Do m=1,nsnaps
+  	  Write(chdum,'(I5)') m
+!  	  file3d='snap3d_'//Trim(Adjustl(chdum))//'.dat'
+	  file3d=restrt_file !'../restrt-start0-stand-run8-out.rst'
+  	  If(nsnaps==1) file3d=restrt_file
+  	  Open(Unit=14, file=file3d, Status='OLD', Form='UNFormatTED',access='stream')
+  	  Read(14) intdum,intdum,intdum,dum,dum,dum,dum,dum,dum,dum,dum
+  	  Write(*,'(A,I5,A,I5,F20.10)') 'snap:',m,'  header:',intdum,dum
+  	  Read(14) uu(:,:,:) !u
+  	  Close(14)
+	End Do
+!
+!	find the y location for am calculation
+	yam=15.0e0; ip=nx/2; kp=nz/2
+	Do j=1,ny/2
+	  If(yplus(j)<yam.And.yplus(j+1)>yam) Then
+	    jp=j; Exit
+	  End If
+	End Do
+!
+	Do j1=1,jmodu
+	  Write(*,*) 'j1=',j1
+	  ux(1:nx,1:nz)=uu(1:nx,j1,1:nz)
+!	  FFT
+	  Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,ux,outfftxz,FFTW_ESTIMATE)
+	  Call dfftw_execute(planxz)
+	  Call dfftw_destroy_plan(planxz)	
+	  outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+!	  filtering
+	  outfftxz(1,:)=0.0e0
+	  outfftxz1(:,:)=outfftxz(:,:)
+	  Do i=2,nx/2+1
+	    If(length/Real(i-1,mytype)<1.0e0) outfftxz1(i,1:nz)=0.0e0
+	  End Do
+!	  inverse FFT
+	  outfftxz(:,:)=outfftxz1(:,:)
+!*	  Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz,ulx,FFTW_ESTIMATE)
+!*	  Call dfftw_execute(planxz)
+!*	  Call dfftw_destroy_plan(planxz)
+!
+	  spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz1(1:nx/2+1,1:nz))*outfftxz1(1:nx/2+1,1:nz)
+	  corr2=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+	  	Sum(spec2d(nx/2+1,1:nz))
+!
+	  Do j2=1,jmodu
+	    ux(1:nx,1:nz)=uu(1:nx,j2,1:nz)
+!	    FFT
+	    Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,ux,outfftxz,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)
+	    Call dfftw_destroy_plan(planxz)	
+	    outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+!	    filtering
+	    outfftxz(1,:)=0.0e0
+	    Do i=2,nx/2+1
+	      If(length/Real(i-1,mytype)>=1.0e0) outfftxz(i,1:nz)=0.0e0
+	    End Do
+	    outfftxz2(:,:)=outfftxz(:,:)
+!	    inverse FFT
+	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz,uhx,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)
+	    Call dfftw_destroy_plan(planxz)
+!
+!	    Hilbert transform
+	    theta=-pi/2.0e0
+	    Do i=2,nx/2+1
+	      outfftxz2(i,1:nz)=outfftxz2(i,1:nz)*Cmplx(Cos(theta),Sin(theta))
+	    End Do
+	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz2,uex,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)  
+	    Call dfftw_destroy_plan(planxz)
+	    uex(:,:)=Sqrt(uhx(:,:)**2+uex(:,:)**2)
+!	    filtering the envelop
+	    Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,uex,outfftxz,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz) 
+	    Call dfftw_destroy_plan(planxz)
+	    outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+	    outfftxz(1,1:nz)=0.0e0
+	    Do i=2,nx/2+1
+	      If(length/Real(i-1,mytype)<1.0e0) outfftxz(i,1:nz)=0.0e0
+	    End Do
+!	    phase shift of uelx in streamwise direction considering the streamwise leaning of the super scale structures
+	    theta=14.0e0/180.0*pi
+	    xshift=-(yc(j1)-yc(j2))/Tan(theta)
+            Do i=1,nx/2+1; Do k=1,nz
+              kappax=2.0e0*pi/length*Real(i-1,mytype)
+              outfftxz(i,k)=outfftxz(i,k)*Cmplx(Cos(kappax*xshift), &
+                  Sin(kappax*xshift))
+            End Do; End Do
+!
+	    outfftxz2(:,:)=outfftxz(:,:)
+!*	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz2,uelx,FFTW_ESTIMATE)
+!*	    Call dfftw_execute(planxz)  
+!*	    Call dfftw_destroy_plan(planxz)
+!	    find the AM  
+!	    calculate the coviarance
+	    spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz(1:nx/2+1,1:nz))*outfftxz1(1:nx/2+1,1:nz)
+	    corr0=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+		Sum(spec2d(nx/2+1,1:nz))
+	    spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz(1:nx/2+1,1:nz))*outfftxz(1:nx/2+1,1:nz)
+	    corr1=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+	  	Sum(spec2d(nx/2+1,1:nz))
+	    am(j1,j2)=corr0 !/Sqrt(corr1*corr2)
+!
+!Write(*,*) 'corr0=',corr0,corr1,corr2
+!corr0=0.0e0
+!Do k=1,nz; Do i=1,nx
+!  corr0=corr0+uelx(i,k)*ulx(i,k)
+!End Do; End Do
+!Write(*,*) 'corr1=',corr0/Real(nx*nz,mytype)
+!
+	  End Do !j2
+	End Do !j1
+!
+	Open(Unit=636,File='AM_2p.plt')
+	WRITE(636,'(320A)') ' variables="y<sub>1</sub><sup>+</sup>","y<sub>2</sub><sup>+</sup>","AM"'
+ 	WRITE(636,*) 'zone i=',jmodu,', j=',jmodu,',f=point'
+	Do j1=1,jmodu; Do j2=1,jmodu
+	  Write(636,'(5E15.7)') ycplus(j1),ycplus(j2),am(j1,j2)
+	End Do; End Do
+	Close(636)
+!
+	Deallocate(uu,ux,ulx,usx,uex,uelx,uhx,outfftxz,outfftxz1,outfftxz2,am,spec2d)	
+!
+	END SUBROUTINE calc_am2p_simplify
+
+!*******************************************************************************
+	SUBROUTINE calc_am2p_simplify_z
+! this subroutine calculates the two point amplitude modulation based on Bernardini_Pirozzoli_PF2011
+! simplified version of calc_am2p to reduced computing time
+! filtered in z direction
+	Include "fftw3.f"
+	Real(mytype), Dimension(:,:,:), Allocatable :: uu
+	Complex(mytype), Allocatable, Dimension(:,:) :: outfftxz,outfftxz1,outfftxz2
+	Real(mytype), Allocatable, Dimension(:,:) :: ux,ulx,usx,uex,uhx,uelx,spec2d
+	Real(mytype), Allocatable, Dimension(:,:) :: am
+	Character :: chdum*8,file3d*60
+	Real(mytype) :: dum,yam,theta,alpha,beta,uol,ustar,corr0,corr1,corr2
+	Integer :: intdum,nsnaps
+	Integer :: m,i,j,k,jp,ip,kp,j1,j2,kz
+        Integer*8 :: planxz
+!
+	nsnaps=1; jmodu=ny/2
+	Allocate(uu(-1:nx+2,-1:ny+2,-1:nz+2))
+	Allocate(outfftxz(1:nx/2+1,1:nz),outfftxz1(nx/2+1,1:nz),outfftxz2(nx/2+1,1:nz),ux(1:nx,1:nz), &
+ulx(1:nx,1:nz),usx(1:nx,1:nz),uex(1:nx,1:nz),uhx(1:nx,1:nz),uelx(1:nx,1:nz),spec2d(1:nx/2+1,1:nz))
+	Allocate(am(1:ny,1:ny))
+!
+	am(:,:)=0.0e0
+!
+	Do m=1,nsnaps
+  	  Write(chdum,'(I5)') m
+!  	  file3d='snap3d_'//Trim(Adjustl(chdum))//'.dat'
+	  file3d=restrt_file !'../restrt-start0-stand-run8-out.rst'
+  	  If(nsnaps==1) file3d=restrt_file
+  	  Open(Unit=14, file=file3d, Status='OLD', Form='UNFormatTED',access='stream')
+  	  Read(14) intdum,intdum,intdum,dum,dum,dum,dum,dum,dum,dum,dum
+  	  Write(*,'(A,I5,A,I5,F20.10)') 'snap:',m,'  header:',intdum,dum
+  	  Read(14) uu(:,:,:) !u
+  	  Close(14)
+	End Do
+!
+!	find the y location for am calculation
+	yam=15.0e0; ip=nx/2; kp=nz/2
+	Do j=1,ny/2
+	  If(yplus(j)<yam.And.yplus(j+1)>yam) Then
+	    jp=j; Exit
+	  End If
+	End Do
+!
+	Do j1=1,jmodu
+	  Write(*,*) 'j1=',j1
+	  ux(1:nx,1:nz)=uu(1:nx,j1,1:nz)
+!	  FFT
+	  Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,ux,outfftxz,FFTW_ESTIMATE)
+	  Call dfftw_execute(planxz)
+	  Call dfftw_destroy_plan(planxz)	
+	  outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+!	  filtering
+	  outfftxz(1,:)=0.0e0
+	  outfftxz1(:,:)=outfftxz(:,:)
+	  Do k=2,nz
+	    If(k>nz/2+1) kz=nz+2-k
+	    If(width/Real(kz-1)<0.5e0) outfftxz1(1:nx/2,k)=0.0e0
+	  End Do
+!
+	  spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz1(1:nx/2+1,1:nz))*outfftxz1(1:nx/2+1,1:nz)
+	  corr2=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+	  	Sum(spec2d(nx/2+1,1:nz))
+!
+	  Do j2=1,jmodu
+	    ux(1:nx,1:nz)=uu(1:nx,j2,1:nz)
+!	    FFT
+	    Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,ux,outfftxz,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)
+	    Call dfftw_destroy_plan(planxz)	
+	    outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+!	    filtering
+	    outfftxz(1,:)=0.0e0
+	    Do k=2,nz
+	      If(k>nz/2+1) kz=nz+2-k
+	      If(width/Real(kz-1)>=0.5e0) outfftxz(1:nx/2,k)=0.0e0
+	    End Do
+	    outfftxz2(:,:)=outfftxz(:,:)
+!	    inverse FFT
+	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz,uhx,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)
+	    Call dfftw_destroy_plan(planxz)
+!
+!	    Hilbert transform
+	    theta=-pi/2.0e0
+	    Do i=2,nx/2+1
+	      outfftxz2(i,1:nz)=outfftxz2(i,1:nz)*Cmplx(Cos(theta),Sin(theta))
+	    End Do
+	    Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz2,uex,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz)  
+	    Call dfftw_destroy_plan(planxz)
+	    uex(:,:)=Sqrt(uhx(:,:)**2+uex(:,:)**2)
+!	    filtering the envelop
+	    Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,uex,outfftxz,FFTW_ESTIMATE)
+	    Call dfftw_execute(planxz) 
+	    Call dfftw_destroy_plan(planxz)
+	    outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+	    outfftxz(1,1:nz)=0.0e0
+	    Do k=2,nz
+	      If(k>nz/2+1) kz=nz+2-k
+	      If(width/Real(kz-1)<0.5e0) outfftxz(1:nx/2,k)=0.0e0
+	    End Do
+	    outfftxz2(:,:)=outfftxz(:,:)
+!
+!	    find the AM  
+!	    calculate the coviarance
+	    spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz(1:nx/2+1,1:nz))*outfftxz1(1:nx/2+1,1:nz)
+	    corr0=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+		Sum(spec2d(nx/2+1,1:nz))
+	    spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz(1:nx/2+1,1:nz))*outfftxz(1:nx/2+1,1:nz)
+	    corr1=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+	  	Sum(spec2d(nx/2+1,1:nz))
+	    am(j1,j2)=corr0 !/Sqrt(corr1*corr2)
+!
+	  End Do !j2
+	End Do !j1
+!
+	Open(Unit=636,File='AM_2p.plt')
+	WRITE(636,'(320A)') ' variables="y<sub>1</sub><sup>+</sup>","y<sub>2</sub><sup>+</sup>","AM"'
+ 	WRITE(636,*) 'zone i=',jmodu,', j=',jmodu,',f=point'
+	Do j1=1,jmodu; Do j2=1,jmodu
+	  Write(636,'(5E15.7)') ycplus(j1),ycplus(j2),am(j1,j2)
+	End Do; End Do
+	Close(636)
+!
+	Deallocate(uu,ux,ulx,usx,uex,uelx,uhx,outfftxz,outfftxz1,outfftxz2,am,spec2d)	
+!
+	END SUBROUTINE calc_am2p_simplify_z
+
+!*******************************************************************************
+	SUBROUTINE skew_decompose
+! this subroutine calculates the terms in decomposed skewness of streamwise velocity (Mathis et al 2011)
+! u^3=uL^3 + 3*uL^2*uS + 3*uL*uS^2 + uS^3
+	Include "fftw3.f"
+	Real(mytype), Dimension(:,:,:), Allocatable :: uu
+	Complex(mytype), Allocatable, Dimension(:,:) :: outfftxz,outfftxz2
+	Real(mytype), Allocatable, Dimension(:,:) :: ux,ulx,usx,spec2d
+	Real(mytype), Allocatable, Dimension(:,:) :: sk
+	Character :: chdum*8,file3d*60
+	Real(mytype) :: dum,yam,urms
+	Integer :: intdum,nsnaps
+	Integer :: m,i,j,k,jp,ip,kp
+        Integer*8 :: planxz
+!
+	nsnaps=1
+	Allocate(uu(-1:nx+2,-1:ny+2,-1:nz+2))
+	Allocate(outfftxz(1:nx/2+1,1:nz),outfftxz2(nx/2+1,1:nz),ux(1:nx,1:nz), &
+	ulx(1:nx,1:nz),usx(1:nx,1:nz),sk(1:ny,1:5),spec2d(1:nx/2+1,1:nz))
+	sk(:,:)=0.0e0
+!
+	Do m=1,nsnaps
+  	  Write(chdum,'(I5)') m
+!  	  file3d='snap3d_'//Trim(Adjustl(chdum))//'.dat'
+	  file3d=restrt_file !'../restrt-start0-stand-run8-out.rst'
+  	  If(nsnaps==1) file3d=restrt_file
+  	  Open(Unit=14, file=file3d, Status='OLD', Form='UNFormatTED',access='stream')
+  	  Read(14) intdum,intdum,intdum,dum,dum,dum,dum,dum,dum,dum,dum
+  	  Write(*,'(A,I5,A,I5,F20.10)') 'snap:',m,'  header:',intdum,dum
+  	  Read(14) uu(:,:,:) !u
+  	  Close(14)
+	End Do
+!
+!	find the y location for am calculation
+	yam=15.0e0; ip=nx/2; kp=nz/2
+	Do j=1,ny/2
+	  If(yplus(j)<yam.And.yplus(j+1)>yam) Then
+	    jp=j; Exit
+	  End If
+	End Do
+!
+	Do jp=1,ny
+	  Write(*,*) 'j=',jp
+	  ux(1:nx,1:nz)=uu(1:nx,jp,1:nz)
+!	  FFT
+	  Call dfftw_plan_dft_r2c_2d(planxz,nx,nz,ux,outfftxz,FFTW_ESTIMATE)
+	  Call dfftw_execute(planxz)
+	  Call dfftw_destroy_plan(planxz)	
+	  outfftxz(:,:)=outfftxz(:,:)/Real(nx*nz,mytype)
+!	  filtering
+	  outfftxz(1,1)=0.0e0
+!	  variance
+	  spec2d(1:nx/2+1,1:nz)=Conjg(outfftxz(1:nx/2+1,1:nz))*outfftxz(1:nx/2+1,1:nz)
+	  urms=Sum(spec2d(2:nx/2,1:nz))*2.0e0+Sum(spec2d(1,2:nz))+&
+	  	Sum(spec2d(nx/2+1,1:nz))
+!
+	  outfftxz2(:,:)=outfftxz(:,:)
+!	  inverse FFT
+	  outfftxz(:,:)=outfftxz2(:,:)
+	  Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz,ux,FFTW_ESTIMATE)
+	  Call dfftw_execute(planxz)
+	  Call dfftw_destroy_plan(planxz)
+!
+	  Do i=2,nx/2+1
+	    If(length/Real(i-1,mytype)<1.0e0) outfftxz2(i,1:nz)=0.0e0
+	  End Do
+!	  inverse FFT for large scales
+	  Call dfftw_plan_dft_c2r_2d(planxz,nx,nz,outfftxz2,ulx,FFTW_ESTIMATE)
+	  Call dfftw_execute(planxz)
+	  Call dfftw_destroy_plan(planxz)
+!	  small scales
+	  usx(:,:)=ux(:,:)-ulx(:,:)
+!
+	  Do i=1,nx; Do k=1,nz
+	    sk(jp,1)=sk(jp,1)+ux(i,k)**3 ! u^3
+	    sk(jp,2)=sk(jp,2)+ulx(i,k)**3 ! uL^3
+	    sk(jp,3)=sk(jp,3)+3.0e0*ulx(i,k)**2*usx(i,k) ! 3*uL^2*uS
+	    sk(jp,4)=sk(jp,4)+3.0e0*ulx(i,k)*usx(i,k)**2 ! 3*uL*uS^2 
+	    sk(jp,5)=sk(jp,5)+usx(i,k)**3 ! uS^3
+	  End Do; End Do
+	  sk(jp,1:5)=sk(jp,1:5)/(Sqrt(urms))**3/Real(nx*nz,mytype)
+!
+	End Do !jp
+!
+	Open(unit=635,file='skewness_decompose.plt')
+	Write(635,'(10A)') ' variables="yc","S","u<sub>L</sub><sup>3</sup>",&
+&"3u<sub>L</sub><sup>2</sup>u<sub>S</sub>","3u<sub>L</sub>u<sub>S</sub><sup>2</sup>",&
+&"u<sub>S</sub><sup>3</sup>","y<sup>+</sup>"'
+	Do j=1,ny
+	  Write(635,'(7F20.10)') yc(j),sk(j,1:5),ycplus(j)
+	End Do
+	Close(635)
+!
+	Deallocate(uu,ux,ulx,usx,outfftxz,outfftxz2,spec2d)	
+!
+	END SUBROUTINE skew_decompose
 
 END MODULE calc_post3d
 
